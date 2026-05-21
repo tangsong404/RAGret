@@ -1,11 +1,21 @@
 from __future__ import annotations
 
-from fastapi import APIRouter, Depends, File, HTTPException, UploadFile
+from pathlib import Path
+
+from fastapi import APIRouter, Depends, File, HTTPException, Query, UploadFile
 from fastapi.responses import Response
 
 from ragret.registry import IndexRegistry
 from server.config import Settings
-from server.deps import get_registry, get_settings, get_store, optional_actor, require_actor, require_user_id
+from server.deps import (
+    get_registry,
+    get_repo_root,
+    get_settings,
+    get_store,
+    optional_actor,
+    require_actor,
+    require_user_id,
+)
 from server.services import kb_service
 from server.store.protocol import AppStore
 from server.webhook_urls import webhook_url_for_kb
@@ -37,6 +47,21 @@ def list_subscribe_indexes(
     return {"ok": True, "indexes": indexes}
 
 
+@router.get("/kb/check-name")
+def check_kb_name(
+    name: str = Query(..., min_length=1),
+    store: AppStore = Depends(get_store),
+    registry: IndexRegistry = Depends(get_registry),
+    repo_root: Path = Depends(get_repo_root),
+    _actor: dict = Depends(require_actor),
+):
+    try:
+        body = kb_service.check_kb_name_for_create(name, store, registry, repo_root)
+    except ValueError as e:
+        raise HTTPException(400, detail=str(e)) from e
+    return {"ok": True, **body}
+
+
 @router.get("/kb/{name}")
 def get_kb(
     name: str,
@@ -52,7 +77,9 @@ def get_kb(
         port=settings.port,
     )
     try:
-        body = kb_service.get_kb_detail(name, actor, store, registry, webhook_url=wh_url)
+        body = kb_service.get_kb_detail(
+            name, actor, store, registry, webhook_url=wh_url, settings=settings, port=settings.port
+        )
     except ValueError as e:
         raise HTTPException(400, detail=str(e))
     except PermissionError as e:

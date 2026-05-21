@@ -733,10 +733,9 @@ class SqliteAppStore:
             kb = self._kb_row_by_name(conn, kb_name)
             if kb is None:
                 return False
-            if not self._kb_ready_from_row(kb):
-                return False
             kid = int(kb["id"])
             path = self._kb_icon_file(kid)
+            path.parent.mkdir(parents=True, exist_ok=True)
             path.write_bytes(body)
             conn.execute(
                 "UPDATE knowledge_bases SET icon = ? WHERE id = ?",
@@ -1167,32 +1166,35 @@ class SqliteAppStore:
         wrf = str(webhook_ref or "").strip()
         with self._pool.acquire() as conn:
             color = self._pick_least_used_list_color(conn)
-            conn.execute(
-                """
-                INSERT INTO knowledge_bases(
-                    name, description, readme_md, db_path, owner_id, created_at,
-                    list_color_idx, is_public, icon, kb_ready, source_type, webhook_provider, webhook_secret,
-                    webhook_repo_url, webhook_ref
+            try:
+                conn.execute(
+                    """
+                    INSERT INTO knowledge_bases(
+                        name, description, readme_md, db_path, owner_id, created_at,
+                        list_color_idx, is_public, icon, kb_ready, source_type, webhook_provider, webhook_secret,
+                        webhook_repo_url, webhook_ref
+                    )
+                    VALUES(?,?,?,?,?,?,?,?,?,0,?,?,?,?,?)
+                    """,
+                    (
+                        name,
+                        desc,
+                        readme,
+                        str(db_path),
+                        int(owner_id),
+                        t,
+                        color,
+                        pub_i,
+                        icon_key,
+                        src,
+                        provider,
+                        secret,
+                        wru,
+                        wrf,
+                    ),
                 )
-                VALUES(?,?,?,?,?,?,?,?,?,0,?,?,?,?,?)
-                """,
-                (
-                    name,
-                    desc,
-                    readme,
-                    str(db_path),
-                    int(owner_id),
-                    t,
-                    color,
-                    pub_i,
-                    icon_key,
-                    src,
-                    provider,
-                    secret,
-                    wru,
-                    wrf,
-                ),
-            )
+            except sqlite3.IntegrityError as e:
+                raise ValueError("Knowledge base name already exists") from e
 
     def get_kb_record_any_state(self, name: str) -> KBRecord | None:
         with self._pool.acquire() as conn:

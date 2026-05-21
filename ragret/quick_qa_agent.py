@@ -36,6 +36,16 @@ def _config_error_message() -> str:
     )
 
 
+def _llm_response_error_message(exc: BaseException) -> str | None:
+    msg = str(exc)
+    if isinstance(exc, AttributeError) and "model_dump" in msg:
+        return (
+            "Quick QA LLM returned a non-JSON response. "
+            "Check RAGRET_LLM_BASE_URL (OpenAI-compatible /v1, e.g. …/v1) and that the API key is valid."
+        )
+    return None
+
+
 @lru_cache(maxsize=1)
 def _build_llm() -> ChatOpenAI | None:
     if not _LLM_BASE_URL or not _LLM_MODEL or not _LLM_API_KEY:
@@ -177,7 +187,13 @@ def run_quick_qa(
         elif role == "user":
             history_msgs.append(HumanMessage(content=content))
     history_msgs.append(HumanMessage(content=q))
-    result = agent.invoke({"messages": history_msgs})
+    try:
+        result = agent.invoke({"messages": history_msgs})
+    except Exception as e:
+        hint = _llm_response_error_message(e)
+        if hint:
+            return {"answer": hint, "used_tool": False, "tool_name": ""}
+        raise
     messages = list(result.get("messages") or [])
     answer = ""
     used_tools: list[str] = []

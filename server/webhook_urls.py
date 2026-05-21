@@ -45,6 +45,21 @@ def webhook_url_for_kb(
     return f"{proto}://{host}/api/webhooks/{prov}/{kb_name}"
 
 
+def folder_push_url_for_kb(
+    kb_name: str,
+    settings: Settings | None = None,
+    *,
+    proto: str = "http",
+    port: int = 8765,
+) -> str:
+    settings = settings or Settings()
+    host = best_public_host(settings)
+    if port not in (80, 443):
+        host = f"{host}:{int(port)}"
+    seg = kb_name if kb_name else "<kb-name>"
+    return f"{proto}://{host}/api/push/{seg}"
+
+
 def webhook_base_urls(
     settings: Settings | None = None,
     *,

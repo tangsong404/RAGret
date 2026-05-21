@@ -75,7 +75,14 @@ def start_build(
     data = body.model_dump()
     try:
         result = build_service.start_build_job(
-            data, user_id, store, registry, upload_base, repo_root
+            data,
+            user_id,
+            store,
+            registry,
+            upload_base,
+            repo_root,
+            settings=settings,
+            port=settings.port,
         )
     except ValueError as e:
         raise HTTPException(400, detail=str(e))
@@ -93,4 +100,8 @@ def start_build(
     if data.get("source_type") == "webhook":
         name = str(data.get("name") or "")
         wh_url = webhook_url_for_kb(name, store, settings=settings, port=settings.port)
-    return BuildJobResponse(job_id=result["job_id"], webhook_url=wh_url)
+    return BuildJobResponse(
+        job_id=result["job_id"],
+        webhook_url=wh_url,
+        folder_push_url=result.get("folder_push_url"),
+    )

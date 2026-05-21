@@ -54,6 +54,58 @@ class TestKbApi:
         assert detail.json()["name"] == "mykb"
         assert detail.json()["description"] == "desc"
 
+    def test_check_kb_name_duplicate(self, client: TestClient, store: SqliteAppStore, tmp_path: Path):
+        reg = client.post(
+            "/api/auth/register",
+            json={"username": "dupuser", "password": "secret123"},
+        ).json()
+        token = reg["token"]
+        uid = reg["user"]["id"]
+        db = tmp_path / "dupkb.sqlite"
+        db.touch()
+        store.create_knowledge_base(
+            name="dupkb",
+            description="d",
+            readme_md="",
+            db_path=str(db),
+            owner_id=uid,
+        )
+        headers = {"Authorization": f"Bearer {token}"}
+        free = client.get("/api/kb/check-name?name=newkb", headers=headers)
+        assert free.status_code == 200
+        assert free.json()["available"] is True
+        taken = client.get("/api/kb/check-name?name=dupkb", headers=headers)
+        assert taken.status_code == 200
+        assert taken.json()["available"] is False
+
+    def test_build_rejects_duplicate_name(self, client: TestClient, store: SqliteAppStore, tmp_path: Path):
+        reg = client.post(
+            "/api/auth/register",
+            json={"username": "builddup", "password": "secret123"},
+        ).json()
+        token = reg["token"]
+        uid = reg["user"]["id"]
+        db = tmp_path / "existkb.sqlite"
+        db.touch()
+        store.create_knowledge_base(
+            name="existkb",
+            description="d",
+            readme_md="",
+            db_path=str(db),
+            owner_id=uid,
+        )
+        resp = client.post(
+            "/api/indexes/build",
+            headers={"Authorization": f"Bearer {token}"},
+            json={
+                "name": "existkb",
+                "description": "another",
+                "upload_id": "a" * 24,
+            },
+        )
+        assert resp.status_code == 409
+        assert "already taken" in resp.json()["error"].lower()
+
     def test_patch_description(self, client: TestClient, store: SqliteAppStore, tmp_path: Path):
         reg = client.post(
             "/api/auth/register",

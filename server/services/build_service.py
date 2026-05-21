@@ -10,8 +10,11 @@ from typing import Any
 from ragret.registry import IndexRegistry, safe_index_name
 from server.build_queue import cleanup_upload_staging, is_http_git_clone_url, wake_build_worker
 from server.runtime_paths import kb_sqlite_path
+from server.config import Settings
 from server.serializers import job_public_view
 from server.store.protocol import AppStore
+from server.services.kb_service import is_kb_name_unavailable
+from server.webhook_urls import folder_push_url_for_kb
 
 _UPLOAD_ID_RE = re.compile(r"^[a-f0-9]{24}$")
 _MAX_USER_UPLOAD_JOBS = 3
@@ -68,6 +71,9 @@ def start_build_job(
     registry: IndexRegistry,
     upload_base: Path,
     repo_root: Path,
+    *,
+    settings: Settings | None = None,
+    port: int = 8765,
 ) -> dict[str, Any]:
     name_raw = data.get("name") or data.get("index")
     desc_raw = str(data.get("description") or "").strip()
@@ -87,7 +93,7 @@ def start_build_job(
         raise ValueError("JSON must include non-empty upload_id for tar build")
     if source_type == "webhook" and webhook_provider not in ("", "gitlab", "github"):
         raise ValueError("webhook_provider must be gitlab or github")
-    if source_type == "webhook" and not webhook_secret:
+    if not webhook_secret:
         webhook_secret = secrets.token_urlsafe(24)
     if source_type == "webhook" and not webhook_repo_url:
         raise ValueError("repo_url is required for webhook first build")
@@ -100,6 +106,10 @@ def start_build_job(
 
     index_name = safe_index_name(str(name_raw))
 
+    def _reject_duplicate_name() -> None:
+        if is_kb_name_unavailable(index_name, store, registry, repo_root)[1]:
+            raise FileExistsError("Knowledge base name already taken")
+
     if source_type == "tar":
         n_active = store.count_user_upload_tasks_active(owner_user_id)
         if n_active >= _MAX_USER_UPLOAD_JOBS:
@@ -108,10 +118,17 @@ def start_build_job(
             )
 
     existing_ready = store.get_knowledge_base(index_name)
-    is_update = existing_ready is not None
+    owner_perm = (
+        store.permission_for(owner_user_id, index_name) if existing_ready is not None else None
+    )
+    is_update = (
+        existing_ready is not None
+        and owner_perm is not None
+        and owner_perm.is_owner
+    )
 
     if source_type == "webhook":
-        if is_update or store.knowledge_base_name_taken(index_name):
+        if is_update or is_kb_name_unavailable(index_name, store, registry, repo_root)[1]:
             raise FileExistsError("Knowledge base name already taken")
         wh_prov = webhook_provider or "gitlab"
         if wh_prov not in ("gitlab", "github"):
@@ -158,16 +175,23 @@ def start_build_job(
             store.delete_knowledge_base(index_name)
             raise RuntimeError(str(e)) from e
         wake_build_worker()
-        return {"job_id": job_id, "webhook_url": None}
+        push_url = (
+            folder_push_url_for_kb(index_name, settings, port=port) if settings else None
+        )
+        return {
+            "job_id": job_id,
+            "webhook_url": None,
+            "folder_push_url": push_url,
+        }
 
     if is_update:
-        perm = store.permission_for(owner_user_id, index_name)
-        if perm is None or not perm.is_owner:
-            raise PermissionError("Only the owner can rebuild an existing knowledge base")
+        if webhook_secret:
+            store.update_knowledge_base_webhook_secret(index_name, webhook_secret)
         op = "update"
     else:
-        if store.knowledge_base_name_taken(index_name):
+        if existing_ready is not None:
             raise FileExistsError("Knowledge base name already taken")
+        _reject_duplicate_name()
         op = "create"
         final_sqlite = str(kb_sqlite_path(repo_root, index_name))
         try:
@@ -181,7 +205,7 @@ def start_build_job(
                 icon=str(data.get("icon") or "book").strip() or "book",
                 source_type="tar",
                 webhook_provider="",
-                webhook_secret="",
+                webhook_secret=webhook_secret,
             )
         except ValueError as e:
             raise FileExistsError(str(e)) from e
@@ -239,4 +263,5 @@ def start_build_job(
             store.delete_knowledge_base(index_name)
         raise RuntimeError(str(e)) from e
     wake_build_worker()
-    return {"job_id": job_id}
+    push_url = folder_push_url_for_kb(index_name, settings, port=port) if settings else None
+    return {"job_id": job_id, "folder_push_url": push_url}

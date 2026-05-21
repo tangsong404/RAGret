@@ -96,6 +96,7 @@ class BuildJobResponse(BaseModel):
     ok: bool = True
     job_id: str
     webhook_url: str | None = None
+    folder_push_url: str | None = None
 
 
 class JobOut(BaseModel):

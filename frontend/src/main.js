@@ -233,6 +233,7 @@ const i18n = {
     refresh: "Refresh",
     ready: "Ready.",
     requireFields: "Name and description are required.",
+    kbNameTaken: "This knowledge base name is already taken.",
     requireWebhookBranch: "Enter the branch to clone for webhook builds.",
     requireStaged: "Upload a tar archive first.",
     requireStagedManage: "Upload a tar archive first, then rebuild the index.",
@@ -467,6 +468,7 @@ const i18n = {
     refresh: "刷新",
     ready: "就绪。",
     requireFields: "请填写名称和描述。",
+    kbNameTaken: "该知识库名称已被占用。",
     requireWebhookBranch: "请填写 Webhook 克隆所用的分支名称。",
     requireStaged: "请先上传 tar 并完成上传。",
     requireStagedManage: "请先上传 tar，再点击重建索引。",
@@ -1410,6 +1412,12 @@ function bindUploadForm() {
     const readmeMd = document.getElementById("kb-readme").value.trim();
     const sourceType = sourceTypeEl?.value === "webhook" ? "webhook" : "tar";
     if (!name || !description) return setStatus(T("requireFields"), true);
+    try {
+      const chk = await fetchJSON(`/api/kb/check-name?name=${encodeURIComponent(name)}`);
+      if (!chk.available) return setStatus(T("kbNameTaken"), true);
+    } catch (e) {
+      return setStatus(e.message, true);
+    }
     if (sourceType === "tar" && !stagedUploadId) return setStatus(T("requireStaged"), true);
     if (sourceType === "webhook" && !String(webhookRepoUrlInput?.value || "").trim()) {
       return setStatus(T("requireFields"), true);
@@ -1439,6 +1447,17 @@ function bindUploadForm() {
           is_public,
         }),
       });
+      const iconFile = document.getElementById("kb-icon-new-file")?.files?.[0] || null;
+      if (iconFile) {
+        const fd = new FormData();
+        fd.append("file", iconFile);
+        try {
+          kbIconBlobCache.delete(name);
+          await fetchJSON(`/api/kb/${encodeURIComponent(name)}/icon`, { method: "POST", body: fd });
+        } catch {
+          /* KB may still be pending; user can upload again from manage */
+        }
+      }
       const jid = start.job_id;
       stagedUploadId = null;
       archiveInput.value = "";

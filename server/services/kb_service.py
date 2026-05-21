@@ -6,8 +6,38 @@ from typing import Any
 
 from ragret.registry import IndexRegistry, safe_index_name
 from server.media_util import resolve_image_mime
+from server.config import Settings
+from server.runtime_paths import kb_sqlite_path
 from server.serializers import serialize_kb
 from server.store.protocol import AppStore, KBRecord
+from server.webhook_urls import folder_push_url_for_kb
+
+
+def is_kb_name_unavailable(
+    name_raw: str,
+    store: AppStore,
+    registry: IndexRegistry,
+    repo_root: Path,
+) -> tuple[str, bool]:
+    """Return sanitized name and whether it cannot be used for a new knowledge base."""
+    key = safe_index_name(name_raw)
+    if store.knowledge_base_name_taken(key):
+        return key, True
+    if registry.get_path(key) is not None:
+        return key, True
+    if kb_sqlite_path(repo_root, key).is_file():
+        return key, True
+    return key, False
+
+
+def check_kb_name_for_create(
+    name_raw: str,
+    store: AppStore,
+    registry: IndexRegistry,
+    repo_root: Path,
+) -> dict[str, Any]:
+    key, taken = is_kb_name_unavailable(name_raw, store, registry, repo_root)
+    return {"name": key, "available": not taken}
 
 
 def list_subscribe_indexes(actor: dict[str, Any], store: AppStore) -> list[dict[str, Any]]:
@@ -41,6 +71,8 @@ def get_kb_detail(
     registry: IndexRegistry,
     *,
     webhook_url: str | None = None,
+    settings: Settings | None = None,
+    port: int = 8765,
 ) -> dict[str, Any]:
     key = safe_index_name(name)
     kind = actor.get("kind")
@@ -76,6 +108,8 @@ def get_kb_detail(
     if webhook_url:
         body["webhook_url"] = webhook_url
     body["webhook_secret_masked"] = "*" * int(body.get("webhook_secret_len") or 0)
+    if settings is not None:
+        body["folder_push_url"] = folder_push_url_for_kb(key, settings, port=port)
     if kind != "superuser" and perm is not None:
         body["permission"] = {
             "can_read": perm.can_read,
