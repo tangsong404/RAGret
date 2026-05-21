@@ -8,21 +8,17 @@ import numpy as np
 from langchain_core.documents import Document
 
 from ragret.cache import IndexCache, ModelCache
+from ragret.indexer import get_meta
 
 EMBEDDING_MODEL = "maidalun1020/bce-embedding-base_v1"
-
-
-def _get_meta(conn: sqlite3.Connection, key: str) -> str | None:
-    row = conn.execute("SELECT value FROM meta WHERE key=?", (key,)).fetchone()
-    return row[0] if row else None
 
 
 def _load_index_snapshot(db_path: Path) -> tuple[np.ndarray, list[dict], str | None]:
     conn = sqlite3.connect(f"file:{db_path}?mode=ro", uri=True)
     conn.row_factory = sqlite3.Row
     try:
-        stored_model = _get_meta(conn, "embedding_model")
-        dim_s = _get_meta(conn, "embed_dim")
+        stored_model = get_meta(conn, "embedding_model")
+        dim_s = get_meta(conn, "embed_dim")
         if not dim_s:
             raise ValueError("Missing embed_dim in meta table.")
         dim = int(dim_s)
