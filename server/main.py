@@ -7,7 +7,7 @@ from fastapi import FastAPI
 from ragret.cache import IndexCache, ModelCache
 from server.config import Settings, load_settings
 from server.middleware.auth import AuthMiddleware
-from server.routers import auth
+from server.routers import auth, search
 from server.store.factory import create_app_store
 from server.store.protocol import AppStore
 
@@ -26,4 +26,5 @@ def create_app(
 
     app.add_middleware(AuthMiddleware)
     app.include_router(auth.router)
+    app.include_router(search.router)
     return app
