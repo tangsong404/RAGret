@@ -18,7 +18,8 @@ from pathlib import Path
 from typing import Any, Callable
 from urllib.parse import urlsplit, urlunsplit
 
-from ragret.rag import BuildCancelledError, index_workdir, try_incremental_update_workdir
+from ragret.embedder import BuildCancelledError
+from ragret.indexer import index_workdir, try_incremental_update_workdir
 from ragret.registry import IndexRegistry, safe_sqlite_basename
 from dulwich import porcelain
 from dulwich.errors import NotGitRepository
