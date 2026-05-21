@@ -37,7 +37,6 @@ class QuickQaRequest(BaseModel):
 @router.post("/quick-qa")
 async def quick_qa(
     body: QuickQaRequest,
-    request: Request,
     uid: int = Depends(require_user_id),
     actor: dict[str, Any] = Depends(require_actor),
     store: AppStore = Depends(get_store),
