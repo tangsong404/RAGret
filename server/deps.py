@@ -1,10 +1,12 @@
 from __future__ import annotations
 
+from pathlib import Path
 from typing import Any
 
 from fastapi import Depends, HTTPException, Request, status
 
 from ragret.cache import IndexCache, ModelCache
+from ragret.registry import IndexRegistry
 from server.auth_actor import effective_api_key
 from server.config import Settings
 from server.store.protocol import AppStore
@@ -24,6 +26,18 @@ async def get_model_cache(request: Request) -> ModelCache:
 
 async def get_index_cache(request: Request) -> IndexCache:
     return request.app.state.index_cache
+
+
+async def get_registry(request: Request) -> IndexRegistry:
+    return request.app.state.registry
+
+
+async def get_repo_root(request: Request) -> Path:
+    return request.app.state.repo_root
+
+
+async def get_upload_base(request: Request) -> Path:
+    return request.app.state.upload_base
 
 
 def _super_token(settings: Settings) -> str | None:
@@ -66,3 +80,12 @@ async def optional_actor(
         return await require_actor(request, store, settings)
     except HTTPException:
         return {"kind": "anon", "user_id": None}
+
+
+async def require_user_id(actor: dict[str, Any] = Depends(require_actor)) -> int:
+    if actor.get("kind") != "user":
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Signed-in user required")
+    uid = actor.get("user_id")
+    if uid is None:
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="User ID required")
+    return int(uid)
