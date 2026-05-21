@@ -108,7 +108,7 @@ def get_kb_detail(
     if webhook_url:
         body["webhook_url"] = webhook_url
     body["webhook_secret_masked"] = "*" * int(body.get("webhook_secret_len") or 0)
-    if settings is not None:
+    if settings is not None and str(rec.source_type or "tar") != "webhook":
         body["folder_push_url"] = folder_push_url_for_kb(key, settings, port=port)
     if kind != "superuser" and perm is not None:
         body["permission"] = {

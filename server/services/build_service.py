@@ -175,14 +175,7 @@ def start_build_job(
             store.delete_knowledge_base(index_name)
             raise RuntimeError(str(e)) from e
         wake_build_worker()
-        push_url = (
-            folder_push_url_for_kb(index_name, settings, port=port) if settings else None
-        )
-        return {
-            "job_id": job_id,
-            "webhook_url": None,
-            "folder_push_url": push_url,
-        }
+        return {"job_id": job_id}
 
     if is_update:
         if webhook_secret:

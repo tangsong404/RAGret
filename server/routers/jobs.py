@@ -97,11 +97,14 @@ def start_build(
         raise HTTPException(code, detail=str(e))
 
     wh_url = None
+    folder_push_url = None
     if data.get("source_type") == "webhook":
         name = str(data.get("name") or "")
         wh_url = webhook_url_for_kb(name, store, settings=settings, port=settings.port)
+    else:
+        folder_push_url = result.get("folder_push_url")
     return BuildJobResponse(
         job_id=result["job_id"],
         webhook_url=wh_url,
-        folder_push_url=result.get("folder_push_url"),
+        folder_push_url=folder_push_url,
     )

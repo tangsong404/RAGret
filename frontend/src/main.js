@@ -1268,6 +1268,7 @@ function bindUploadForm() {
   const sourceTypeEl = document.getElementById("kb-source-type");
   const tarBlock = document.getElementById("kb-source-tar-block");
   const webhookBlock = document.getElementById("kb-source-webhook-block");
+  const tarPushBlock = document.getElementById("kb-source-tar-push-block");
   const uploadBlock = document.getElementById("kb-upload-progress-block");
   const folderPushUrlInput = document.getElementById("kb-folder-push-url");
   const webhookUrlInput = document.getElementById("kb-webhook-url");
@@ -1348,6 +1349,7 @@ function bindUploadForm() {
   const syncSourceTypeUi = () => {
     const tp = sourceTypeEl?.value === "webhook" ? "webhook" : "tar";
     if (tarBlock) tarBlock.style.display = tp === "tar" ? "" : "none";
+    if (tarPushBlock) tarPushBlock.style.display = tp === "tar" ? "" : "none";
     if (uploadBlock) uploadBlock.style.display = tp === "tar" ? "" : "none";
     if (webhookBlock) webhookBlock.style.display = tp === "webhook" ? "" : "none";
     if (sourceSectionTitleEl) {
@@ -1957,13 +1959,15 @@ async function renderAddKb(user) {
                       <button type="button" class="secondary" id="kb-webhook-secret-regen">${esc(T("webhookSecretRegenerate"))}</button>
                     </p>
                   </div>
-                  <label><span>${esc(T("folderPushUrlLabel"))}</span><input id="kb-folder-push-url" readonly /></label>
-                  <label><span>${esc(T("webhookSecretLabel"))}</span><input id="kb-push-secret" readonly /></label>
-                  <p class="form-actions" style="margin-top:0.5rem">
-                    <button type="button" class="secondary" id="kb-push-secret-eye">${esc(T("apiKeyEyeShow"))}</button>
-                    <button type="button" class="secondary" id="kb-push-secret-regen">${esc(T("webhookSecretRegenerate"))}</button>
-                  </p>
-                  <p class="muted small">${esc(T("folderPushHint"))}<br />${esc(T("folderPushHeaderHint"))}</p>
+                  <div id="kb-source-tar-push-block">
+                    <label><span>${esc(T("folderPushUrlLabel"))}</span><input id="kb-folder-push-url" readonly /></label>
+                    <label><span>${esc(T("webhookSecretLabel"))}</span><input id="kb-push-secret" readonly /></label>
+                    <p class="form-actions" style="margin-top:0.5rem">
+                      <button type="button" class="secondary" id="kb-push-secret-eye">${esc(T("apiKeyEyeShow"))}</button>
+                      <button type="button" class="secondary" id="kb-push-secret-regen">${esc(T("webhookSecretRegenerate"))}</button>
+                    </p>
+                    <p class="muted small">${esc(T("folderPushHint"))}<br />${esc(T("folderPushHeaderHint"))}</p>
+                  </div>
                 </div>
                 <hr class="hr-soft hr-soft--kb-detail" />
                 <div class="kb-detail-block" id="kb-upload-progress-block">
@@ -2780,8 +2784,6 @@ async function renderKbManage(user, name) {
       ? `<div class="kb-detail-block">
           <h2 class="kb-detail-block-title">${esc(T("kbUpdateCorpusTitle"))}</h2>
           <p class="muted small">${esc(T("webhookProviderLabel"))}: ${esc(String(meta?.webhook_provider || "").toLowerCase() === "github" ? T("webhookProviderGithub") : T("webhookProviderGitlab"))}</p>
-          <label><span>${esc(T("folderPushUrlLabel"))}</span><input id="kb-manage-folder-push-url" readonly value="${esc(String(meta?.folder_push_url || ""))}" /></label>
-          <p class="muted small">${esc(T("folderPushHint"))}</p>
           <label><span>${esc(T("webhookUrlLabel"))}</span><input id="kb-manage-webhook-url" readonly value="${esc(String(meta?.webhook_url || ""))}" /></label>
           <label><span>${esc(T("webhookSecretLabel"))}</span><input id="kb-manage-webhook-secret" readonly value="${esc(String(meta?.webhook_secret_masked || ""))}" placeholder="${esc(String(meta?.webhook_provider || "").toLowerCase() === "github" ? T("webhookSecretPlaceholderGithub") : T("webhookSecretPlaceholderGitlab"))}" /></label>
           <p class="form-actions" style="margin-top:0.75rem">
