@@ -18,6 +18,7 @@ from ragret.embedder import (
     resolve_device,
     reraise_if_missing_hf_weights,
 )
+from ragret.fts_index import chunks_fts_rebuild, try_init_chunks_fts
 from ragret.loader import (
     chunk_documents,
     fingerprint_map,
@@ -56,6 +57,7 @@ def connect(db_path: Path) -> sqlite3.Connection:
 def init_schema(conn: Any) -> None:
     conn.executescript(SCHEMA_SQL)
     conn.commit()
+    try_init_chunks_fts(conn)
 
 
 def set_meta(conn: Any, key: str, value: str) -> None:
@@ -131,6 +133,7 @@ def build_index(
     set_meta(conn, "source_fingerprints", json.dumps(fp_map, sort_keys=True, ensure_ascii=False))
     set_meta(conn, "chunk_size", str(chunk_size))
     set_meta(conn, "chunk_overlap", str(chunk_overlap))
+    chunks_fts_rebuild(conn)
     conn.commit()
     return len(texts)
 
@@ -301,6 +304,8 @@ def try_incremental_update_workdir(
             set_meta(conn, "source_fingerprints", json.dumps(new_fp, sort_keys=True, ensure_ascii=False))
             set_meta(conn, "indexed_work_dir", str(work_dir))
             set_meta(conn, "indexed_at", str(int(time.time())))
+            chunks_fts_rebuild(conn)
+            conn.commit()
             report("done", 100, "deleted only")
             return True
 
@@ -347,6 +352,7 @@ def try_incremental_update_workdir(
         set_meta(conn, "indexed_at", str(int(time.time())))
         set_meta(conn, "chunk_size", str(chunk_size))
         set_meta(conn, "chunk_overlap", str(chunk_overlap))
+        chunks_fts_rebuild(conn)
         conn.commit()
     finally:
         conn.close()

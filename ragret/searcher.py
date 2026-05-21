@@ -8,6 +8,16 @@ import numpy as np
 from langchain_core.documents import Document
 
 from ragret.cache import IndexCache, ModelCache
+from ragret.fts_index import (
+    RRF_BM25_POOL,
+    RRF_DENSE_POOL,
+    RRF_FUSE_TOP,
+    RRF_K,
+    bm25_ranked_chunk_ids,
+    chunks_fts_ready,
+    dense_chunk_ids_for_rrf,
+    reciprocal_rank_fusion,
+)
 from ragret.indexer import get_meta
 
 EMBEDDING_MODEL = "maidalun1020/bce-embedding-base_v1"
@@ -82,21 +92,49 @@ def search_db(
 
     q = model_cache.embed_query(query)
     scores = matrix @ q
-    order = np.argsort(-scores)
+    by_id = {int(r["id"]): r for r in records}
+    dense_scores_by_id = {int(records[j]["id"]): float(scores[j]) for j in range(len(records))}
+    dense_ids = dense_chunk_ids_for_rrf(
+        scores,
+        records,
+        threshold=float(score_threshold),
+        cap=RRF_DENSE_POOL,
+    )
+
+    bm25_ids: list[int] = []
+    fts5_indexed = False
+    conn_ro = sqlite3.connect(f"file:{db_path}?mode=ro", uri=True)
+    try:
+        fts5_indexed = chunks_fts_ready(conn_ro)
+        if fts5_indexed:
+            bm25_ids = bm25_ranked_chunk_ids(conn_ro, query, limit=RRF_BM25_POOL)
+    finally:
+        conn_ro.close()
+
+    fused = reciprocal_rank_fusion([dense_ids, bm25_ids], k=RRF_K)
+    fuse_take = min(RRF_FUSE_TOP, max(k * 3, int(rerank_top_n) * 4), len(fused))
+    fused = fused[:fuse_take]
+
+    bm25_rank_by_id = {cid: rank for rank, cid in enumerate(bm25_ids, start=1)}
+    dense_rank_by_id = {cid: rank for rank, cid in enumerate(dense_ids, start=1)}
 
     candidates: list[Document] = []
-    for idx in order:
-        s = float(scores[idx])
-        if s < score_threshold:
+    for chunk_id, rrf_s in fused:
+        r = by_id.get(int(chunk_id))
+        if r is None:
             continue
-        r = records[int(idx)]
         meta = dict(r["metadata"])
         meta["source"] = meta.get("source") or r["source"]
         meta["chunk_index"] = r["chunk_index"]
-        meta["vector_score"] = s
+        meta["vector_score"] = float(dense_scores_by_id.get(int(chunk_id), 0.0))
+        meta["rrf_score"] = float(rrf_s)
+        dr = dense_rank_by_id.get(int(chunk_id))
+        br = bm25_rank_by_id.get(int(chunk_id))
+        if dr is not None:
+            meta["dense_rank"] = dr
+        if br is not None:
+            meta["bm25_rank"] = br
         candidates.append(Document(page_content=r["content"], metadata=meta))
-        if len(candidates) >= k:
-            break
 
     if not candidates:
         return []
@@ -106,13 +144,18 @@ def search_db(
 
     results = []
     for d in ranked:
-        results.append(
-            {
-                "content": d.page_content,
-                "source": str(d.metadata.get("source", "")),
-                "chunk_index": int(d.metadata.get("chunk_index", 0)),
-                "vector_score": float(d.metadata.get("vector_score", 0.0)),
-                "relevance_score": float(d.metadata.get("relevance_score", 0.0)),
-            }
-        )
+        row: dict = {
+            "content": d.page_content,
+            "source": str(d.metadata.get("source", "")),
+            "chunk_index": int(d.metadata.get("chunk_index", 0)),
+            "vector_score": float(d.metadata.get("vector_score", 0.0)),
+            "relevance_score": float(d.metadata.get("relevance_score", 0.0)),
+        }
+        if "rrf_score" in d.metadata:
+            row["rrf_score"] = float(d.metadata["rrf_score"])
+        if "dense_rank" in d.metadata:
+            row["dense_rank"] = int(d.metadata["dense_rank"])
+        if "bm25_rank" in d.metadata:
+            row["bm25_rank"] = int(d.metadata["bm25_rank"])
+        results.append(row)
     return results

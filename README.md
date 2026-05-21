@@ -27,10 +27,14 @@ With `RAGret`, team members can publish knowledge bases to a shared hub, subscri
 
 ### Stack
 
-Indexing and retrieval use **BCE embedding + SQLite + BCE reranking**, backed by:
+Indexing and retrieval use **BCE embedding + SQLite + BM25 + RRF fusion + BCE reranking**, backed by:
 
 - [BCEmbedding (GitHub)](https://github.com/netease-youdao/BCEmbedding)
 - [Models on Hugging Face](https://huggingface.co/maidalun1020) (`bce-embedding-base_v1`, `bce-reranker-base_v1`)
+- SQLite **FTS5 BM25** for lexical recall (keyword / sparse signal)
+- **RRF (Reciprocal Rank Fusion)** to merge dense and BM25 candidate lists before reranking
+
+Indexes built before this feature lack the `chunks_fts` table and still work with dense vectors only; **run a full or incremental rebuild** to enable BM25 fusion.
 
 ## Quick start
 

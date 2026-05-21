@@ -27,10 +27,14 @@
 
 ### 技术栈
 
-索引与检索采用 **BCE 嵌入 + SQLite + BCE 重排序**，依赖：
+索引与检索采用 **BCE 嵌入 + SQLite + BM25 + RRF 融合 + BCE 重排序**，依赖：
 
 - [BCEmbedding（GitHub）](https://github.com/netease-youdao/BCEmbedding)
 - [Hugging Face 上的模型](https://huggingface.co/maidalun1020)（`bce-embedding-base_v1`、`bce-reranker-base_v1`）
+- SQLite **FTS5 BM25** 用于词法检索（关键词精确匹配 / 稀疏信号）
+- **RRF（Reciprocal Rank Fusion）** 在重排序前融合稠密检索与 BM25 的候选列表
+
+旧版索引（无 `chunks_fts` 表）仍可按稠密向量检索；**重新全量或增量构建** 后即可启用 BM25 融合。
 
 ## 快速开始
 

@@ -84,8 +84,13 @@ def format_search_text(
     for i, r in enumerate(results, 1):
         rs = r.get("relevance_score", "")
         vs = r.get("vector_score", "")
+        rr = r.get("rrf_score", "")
+        dr = r.get("dense_rank", "")
+        br = r.get("bm25_rank", "")
         src = r.get("source", "")
-        lines.append(f"[{i}] rerank={rs}  vector={vs}")
+        rank_bits = f"dense#{dr or '-'} bm25#{br or '-'}"
+        extra = f"  rrf={rr}  {rank_bits}" if rr != "" else ""
+        lines.append(f"[{i}] rerank={rs}  vector={vs}{extra}")
         if src:
             lines.append(f"    source: {src}")
         lines.append(str(r.get("content", "")).strip())
