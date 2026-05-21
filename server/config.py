@@ -43,8 +43,16 @@ class Settings(BaseSettings):
     api_token: str | None = None
     avatar_max_bytes: int = 2 * 1024 * 1024
     public_host: str | None = None
+    llm_base_url: str = ""
+    llm_model: str = ""
+    llm_api_key: str = ""
 
-    model_config = SettingsConfigDict(env_prefix="RAGRET_")
+    model_config = SettingsConfigDict(
+        env_prefix="RAGRET_",
+        env_file=".env",
+        env_file_encoding="utf-8",
+        extra="ignore",
+    )
 
     @classmethod
     def settings_customise_sources(
@@ -77,8 +85,30 @@ class Settings(BaseSettings):
             os.environ["RAGRET_PUBLIC_HOST"] = self.public_host
 
 
-def load_settings() -> Settings:
-    """Load settings and push legacy-compatible values into os.environ."""
-    settings = Settings()
+def _resolve_env_file(repo_root: Path | None) -> str | None:
+    if repo_root is not None:
+        p = (repo_root / ".env").resolve()
+        return str(p) if p.is_file() else None
+    return ".env"
+
+
+def load_settings(*, repo_root: Path | None = None, **overrides: Any) -> Settings:
+    """Load Settings from environment, optional repo ``.env``, and explicit overrides."""
+    env_file = _resolve_env_file(repo_root)
+    kwargs: dict[str, Any] = {}
+    if env_file is not None:
+        kwargs["_env_file"] = env_file
+    kwargs.update(overrides)
+    settings = Settings(**kwargs)
     settings.apply_legacy_environ()
     return settings
+
+
+def apply_quick_qa_llm(settings: Settings) -> None:
+    from ragret.quick_qa_agent import set_quick_qa_llm_config
+
+    set_quick_qa_llm_config(
+        base_url=str(settings.llm_base_url or "").strip(),
+        model=str(settings.llm_model or "").strip(),
+        api_key=str(settings.llm_api_key or "").strip(),
+    )

@@ -20,6 +20,7 @@
 
 - 创建者可设置可见范围，灵活控制访问。
 - **对 Agent 友好**：提供 **API 密钥** 与 **SKILL.md**，便于智能体快速接入团队工作流。
+- **快速问答**：内置对话页（LangGraph Agent），可列出你有权访问的知识库并用自然语言检索；通过 `.env` 配置 OpenAI 兼容 LLM 即可启用完整 Agent 模式。
 - 支持通过 **tar 上传** 或 **GitLab / GitHub Webhook** 入库，贴合常见文档存放习惯；飞书等在线文档同步已在规划中。
 - 多格式：**PDF、Word（docx）、Excel（xlsx）、Markdown（md）、邮件（eml）、TXT、CSV、网页链接（html）**。
 - 中英双语界面、浅色 / 深色主题，并可通过 YAML 调整品牌（如 favicon、页面标题）。
@@ -100,22 +101,74 @@ docker build -t ragret --build-arg RAGRET_SKIP_WARMUP=1 .
 docker run --name ragret -it --gpus all -p 8765:8765 -v /path/on/host/models:/opt/hf ragret
 ```
 
-### 启动服务
+### 配置（`.env`）
 
-在 `frontend` 目录：
+在**仓库根目录**复制模板并填写（`.env` 已加入 `.gitignore`，不会提交到 Git）：
 
 ```bash
-npm install
-npm run build
+copy .env.example .env
 ```
 
-在仓库根目录：
+示例：
+
+```env
+RAGRET_HOST=127.0.0.1
+RAGRET_PORT=8765
+
+# 快速问答 Agent（OpenAI 兼容接口）
+RAGRET_LLM_BASE_URL=https://你的兼容接口/v1
+RAGRET_LLM_MODEL=模型名
+RAGRET_LLM_API_KEY=你的key
+```
+
+环境变量统一使用 **`RAGRET_`** 前缀。命令行参数（如 `--host`、`--llm-model`）在传入时会覆盖 `.env` 中的对应项。
+
+未配置 LLM 时，快速问答会退化为**多知识库索引直返**（无 LangGraph Agent）。
+
+### 启动服务
+
+1. **构建前端**（产物输出到 `ragret/static/`）：
+
+   ```bash
+   cd frontend
+   npm install
+   npm run build
+   cd ..
+   ```
+
+2. **在仓库根目录启动 API**：
+
+   ```bash
+   python -m ragret serve
+   # 或：python ragret.py serve
+   ```
+
+   浏览器打开 `http://127.0.0.1:8765/`（或你配置的 `RAGRET_HOST` / `RAGRET_PORT`）。默认首页为**快速问答**；侧栏可进入**知识库广场**、任务与账户等页面。
+
+   可选覆盖示例：
+
+   ```bash
+   python -m ragret serve --host 0.0.0.0 --port 8765
+   ```
+
+### 运行测试（可选）
 
 ```bash
-python ragret.py serve --host 0.0.0.0 --port 8765
+pip install -r requirements.txt
+pytest tests/ -q
 ```
 
 ## 使用说明
+
+### 快速问答
+
+登录后默认进入**快速问答**：用自然语言提问，Agent 会列出你拥有或已订阅的知识库，并调用检索工具查询内容。
+
+- 在 `.env` 中配置 **`RAGRET_LLM_*`**（见上文）以启用完整 Agent 模式。
+- 未配置 LLM 时，回答来自简单的多库索引检索拼接。
+- 本页对话内容**刷新后不保留**。
+
+侧栏 **知识库广场**（`/plaza`）用于浏览与订阅知识库。
 
 ### 偏好与凭据
 
@@ -170,20 +223,26 @@ python ragret.py serve --host 0.0.0.0 --port 8765
 
 ### 使用知识库
 
-1. 在 **知识中心（Knowledge hub）** 订阅。
+1. 在侧栏 **知识库广场** 订阅。
 2. 在 **账户** 中复制 API 密钥。
 3. 设置环境变量 **`RAGRET_API_KEY`**。
 
-**GET 请求示例：**
+**HTTP API 示例**（`BASE` 例如 `http://127.0.0.1:8765`）：
 
 ```bash
-# 列出已订阅的索引
+# 列出已订阅的索引（API 密钥）
 curl -sS -H "X-API-Key: $RAGRET_API_KEY" "$BASE/api/subscribe-indexes"
-# 检索
+
+# 检索（API 密钥）
 curl -sS -G "$BASE/api/search/INDEX_NAME" -H "X-API-Key: $RAGRET_API_KEY" --data-urlencode "query=…"
+
+# 快速问答（需登录后的 Session，或 /api/auth/login 返回的 Bearer token）
+curl -sS -X POST "$BASE/api/quick-qa" -H "Content-Type: application/json" \
+  -H "Authorization: Bearer $SESSION_TOKEN" \
+  -d '{"question":"文档里写了什么？","lang":"zh"}'
 ```
 
-**智能体：** 下载 `SKILL.md` 并导入 Claude Code、Cursor、OpenClaw 或其他 Agent 工具。
+**智能体：** 在侧栏打开 **SKILL.md** 下载文档，导入 Claude Code、Cursor、OpenClaw 或其他 Agent 工具。
 
 ## 路线图
 

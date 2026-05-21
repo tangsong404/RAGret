@@ -9,8 +9,9 @@ from ragret.registry import IndexRegistry
 from server.config import Settings, load_settings
 from server.exception_handlers import register_exception_handlers
 from server.middleware.auth import AuthMiddleware
-from server.routers import admin, auth, health, jobs, kb, misc, search, upload, user, users, webhook
+from server.routers import admin, auth, health, jobs, kb, misc, quick_qa, search, upload, user, users, webhook
 from server.runtime_paths import default_registry_path, runtime_upload_dir
+from server.static_ui import register_static_ui
 from server.store.factory import create_app_store
 from server.store.protocol import AppStore
 
@@ -51,4 +52,6 @@ def create_app(
     app.include_router(user.router)
     app.include_router(users.router)
     app.include_router(misc.router)
+    app.include_router(quick_qa.router)
+    register_static_ui(app, root)
     return app

@@ -20,6 +20,7 @@ With `RAGret`, team members can publish knowledge bases to a shared hub, subscri
 
 - Creators can set visibility scopes and control access flexibly.
 - **Agent-friendly**: the app exposes **API keys** and a **SKILL.md** so agents can plug into team workflows quickly.
+- **Quick Q&A**: a built-in chat UI (LangGraph agent) that lists your knowledge bases and searches them with natural language—configure an OpenAI-compatible LLM via `.env`.
 - Ingest via **tar upload** or **GitLab / GitHub webhooks**, so it fits common doc storage habits. Support for Feishu and similar online docs is planned.
 - Many formats: **PDF, Word (docx), Excel (xlsx), Markdown (md), Email (eml), TXT, CSV, web links (html)**.
 - Bilingual UI (Chinese / English), light / dark themes, and brand tweaks via YAML (e.g. favicon, page title).
@@ -100,22 +101,74 @@ docker build -t ragret --build-arg RAGRET_SKIP_WARMUP=1 .
 docker run --name ragret -it --gpus all -p 8765:8765 -v /path/on/host/models:/opt/hf ragret
 ```
 
-### Start the server
+### Configuration (`.env`)
 
-From the `frontend` directory:
+Copy the template and edit values at the **repo root** (`.env` is gitignored):
 
 ```bash
-npm install
-npm run build
+cp .env.example .env   # Windows: copy .env.example .env
 ```
 
-From the repo root:
+Example:
+
+```env
+RAGRET_HOST=127.0.0.1
+RAGRET_PORT=8765
+
+# Quick Q&A agent (OpenAI-compatible API)
+RAGRET_LLM_BASE_URL=https://your-api.example.com/v1
+RAGRET_LLM_MODEL=your-model-name
+RAGRET_LLM_API_KEY=your-api-key
+```
+
+All settings use the `RAGRET_` prefix. CLI flags such as `--host` or `--llm-model` override `.env` when provided.
+
+Without LLM settings, Quick Q&A falls back to **direct index search** (no LangGraph agent).
+
+### Start the server
+
+1. **Build the web UI** (output goes to `ragret/static/`):
+
+   ```bash
+   cd frontend
+   npm install
+   npm run build
+   cd ..
+   ```
+
+2. **Run the API** from the repo root:
+
+   ```bash
+   python -m ragret serve
+   # or: python ragret.py serve
+   ```
+
+   Open `http://127.0.0.1:8765/` (or your `RAGRET_HOST` / `RAGRET_PORT`). The home page is **Quick Q&A**; use the sidebar for **Knowledge plaza**, tasks, and account settings.
+
+   Optional overrides:
+
+   ```bash
+   python -m ragret serve --host 0.0.0.0 --port 8765
+   ```
+
+### Run tests (optional)
 
 ```bash
-python ragret.py serve --host 0.0.0.0 --port 8765
+pip install -r requirements.txt
+pytest tests/ -q
 ```
 
 ## User guide
+
+### Quick Q&A
+
+After sign-in, the home page is **Quick Q&A**: ask questions in natural language. The agent can list knowledge bases you own or subscribe to and call retrieval tools against them.
+
+- Configure **`RAGRET_LLM_*`** in `.env` (see above) for full agent mode.
+- Without LLM config, answers come from a simple multi-KB index search.
+- Chat history on this page is **not kept** after refresh.
+
+Use **Knowledge plaza** in the sidebar (`/plaza`) to browse and subscribe to bases.
 
 ### Preferences and credentials
 
@@ -170,20 +223,26 @@ Notes:
 
 ### Using knowledge bases
 
-1. Subscribe in **Knowledge hub**.
+1. Subscribe in **Knowledge plaza** (sidebar).
 2. Copy an API key from **Account**.
 3. Set **`RAGRET_API_KEY`**.
 
-**GET requests:**
+**HTTP API examples** (`BASE` = e.g. `http://127.0.0.1:8765`):
 
 ```bash
-# List subscribed indexes
+# List subscribed indexes (API key)
 curl -sS -H "X-API-Key: $RAGRET_API_KEY" "$BASE/api/subscribe-indexes"
-# Search
+
+# Search (API key)
 curl -sS -G "$BASE/api/search/INDEX_NAME" -H "X-API-Key: $RAGRET_API_KEY" --data-urlencode "query=…"
+
+# Quick Q&A (signed-in session cookie or Bearer token from /api/auth/login)
+curl -sS -X POST "$BASE/api/quick-qa" -H "Content-Type: application/json" \
+  -H "Authorization: Bearer $SESSION_TOKEN" \
+  -d '{"question":"What is in my docs?","lang":"en"}'
 ```
 
-**Agents:** download `SKILL.md` and import it into Claude Code, Cursor, OpenClaw, or other agent tools.
+**Agents:** download `SKILL.md` from the UI (**SKILL.md** in the sidebar) and import it into Claude Code, Cursor, OpenClaw, or other agent tools.
 
 ## Roadmap
 

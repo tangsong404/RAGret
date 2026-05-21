@@ -18,20 +18,38 @@ def _ensure_hf_env() -> None:
         d.mkdir(parents=True, exist_ok=True)
 
 
+def _serve_settings_from_args(args: argparse.Namespace):
+    from server.config import apply_quick_qa_llm, load_settings
+
+    overrides: dict[str, object] = {}
+    if args.host is not None:
+        overrides["host"] = args.host
+    if args.port is not None:
+        overrides["port"] = args.port
+    if args.llm_base_url is not None:
+        overrides["llm_base_url"] = args.llm_base_url
+    if args.llm_model is not None:
+        overrides["llm_model"] = args.llm_model
+    if args.llm_api_key is not None:
+        overrides["llm_api_key"] = args.llm_api_key
+
+    settings = load_settings(repo_root=REPO_ROOT, **overrides)
+    apply_quick_qa_llm(settings)
+    return settings
+
+
 def serve(args: argparse.Namespace) -> int:
     import uvicorn
 
     from ragret.cache import IndexCache, ModelCache
     from ragret.embedder import resolve_device
     from server.build_queue import start_global_build_worker, wake_build_worker
-    from server.config import Settings
     from server.data_cleanup import cleanup_orphan_kb_sqlite_files
     from server.main import create_app
     from server.runtime_paths import default_registry_path
 
     _ensure_hf_env()
-    settings = Settings(host=args.host, port=args.port)
-    settings.apply_legacy_environ()
+    settings = _serve_settings_from_args(args)
 
     device = resolve_device()
     model_cache = ModelCache(
@@ -73,8 +91,8 @@ def serve(args: argparse.Namespace) -> int:
         flush=True,
     )
     print(
-        "API: auth /api/auth/* | GET /api/indexes | GET /api/kb/{name} | "
-        "GET /api/search/{index}?query=... | POST/DELETE /api/indexes",
+        "API: auth /api/auth/* | GET /api/indexes | POST /api/quick-qa | "
+        "GET /api/search/{index}?query=...",
         flush=True,
     )
 
@@ -94,7 +112,7 @@ def main() -> int:
         prog="ragret",
         description=(
             "RAGret — local RAG index (BCE embedding + rerank) stored in SQLite. "
-            "Subcommands: serve (HTTP API)."
+            "Subcommands: serve (HTTP API). Settings: repo-root .env or RAGRET_* env vars."
         ),
     )
     sub = p.add_subparsers(dest="cmd", required=True)
@@ -103,8 +121,39 @@ def main() -> int:
         "serve",
         help="HTTP API service (FastAPI + uvicorn)",
     )
-    pv.add_argument("--host", type=str, default="127.0.0.1", help="Bind address (default: loopback)")
-    pv.add_argument("--port", type=int, default=8765)
+    pv.add_argument(
+        "--host",
+        type=str,
+        default=None,
+        help="Bind address (default: RAGRET_HOST or 127.0.0.1)",
+    )
+    pv.add_argument(
+        "--port",
+        type=int,
+        default=None,
+        help="Listen port (default: RAGRET_PORT or 8765)",
+    )
+    pv.add_argument(
+        "--llm-base-url",
+        dest="llm_base_url",
+        type=str,
+        default=None,
+        help="OpenAI-compatible base URL (overrides RAGRET_LLM_BASE_URL / .env)",
+    )
+    pv.add_argument(
+        "--llm-model",
+        dest="llm_model",
+        type=str,
+        default=None,
+        help="LLM model name (overrides RAGRET_LLM_MODEL / .env)",
+    )
+    pv.add_argument(
+        "--llm-api-key",
+        dest="llm_api_key",
+        type=str,
+        default=None,
+        help="LLM API key (overrides RAGRET_LLM_API_KEY / .env)",
+    )
     pv.add_argument(
         "--registry",
         type=Path,

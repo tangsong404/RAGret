@@ -122,6 +122,7 @@ const i18n = {
     kbListSearch: "Search",
     kbListSearchPlaceholder: "Search by name or description",
     navSection: "Menu",
+    navQuickQa: "Quick Q&A",
     navKbPlaza: "Knowledge plaza",
     navMyKb: "My knowledge bases",
     navAddKb: "Add knowledge base",
@@ -149,7 +150,7 @@ const i18n = {
     newKb: "Add knowledge base",
     addKbSubtitle: "Upload a tar archive, then name and describe your index.",
     kbTypeLabel: "Knowledge base type",
-    kbTypeTar: "Compressed archive (.tar)",
+    kbTypeTar: "Local push",
     kbTypeWebhook: "Webhook (GitLab / GitHub)",
     indexName: "Name",
     indexDescription: "Description",
@@ -157,11 +158,15 @@ const i18n = {
     readmePreview: "Preview",
     readmeEdit: "Edit",
     archiveLabel: "Archive (.tar / .tar.gz / .tgz)",
+    pushArchiveLabel: "Local push settings",
     webhookAddKbSectionTitle: "Webhook & repository (HTTP clone URL, provider, secret)",
     webhookProviderLabel: "Webhook provider",
     webhookProviderGitlab: "GitLab",
     webhookProviderGithub: "GitHub",
     webhookUrlLabel: "Webhook URL",
+    folderPushUrlLabel: "Folder push URL",
+    folderPushHint: "Your client can upload a tar archive to this URL; the server queues an incremental rebuild.",
+    folderPushHeaderHint: "Send secret in header: X-Webhook-Token: <secret>",
     webhookSecretLabel: "Secret token",
     webhookRepoUrlLabel: "Repository URL (HTTP/HTTPS)",
     webhookBranchLabel: "Branch to build",
@@ -186,6 +191,16 @@ const i18n = {
     back: "Back to list",
     search: "Search",
     searchPlaceholder: "Ask a question…",
+    quickQaEntryTitle: "Quick Q&A",
+    quickQaEntryDesc: "Open an AI Q&A interface powered by a local LangGraph agent.",
+    quickQaOpen: "Open AI Q&A",
+    quickQaTitle: "Quick Q&A",
+    quickQaSubtitle: "Quickly test knowledge base effects. Content on this page is not kept after refresh.",
+    quickQaInputLabel: "Your question",
+    quickQaInputPlaceholder: "For example: What time is it now?",
+    quickQaSend: "Send",
+    quickQaThinking: "Thinking...",
+    quickQaWelcome: "Hi! I'm the RAGret Q&A assistant. What would you like to ask?",
     runSearch: "Run search",
     results: "Results",
     noResults: "No answer text yet — try a query.",
@@ -257,6 +272,7 @@ const i18n = {
     skillTitle: "SKILL.md",
     skillSubtitle: "Project skill document",
     skillDownload: "Download ZIP",
+    skillDownloadQuick: "Download RAGret SKILL.md",
     taskJobRemovedAfterDone: "Build finished. Returning to tasks.",
     taskCancelledRemoved: "Task cancelled.",
     buildDone: (n) => `Built "${n}".`,
@@ -340,6 +356,7 @@ const i18n = {
     kbListSearch: "搜索",
     kbListSearchPlaceholder: "按名称或描述搜索",
     navSection: "导航",
+    navQuickQa: "快速问答",
     navKbPlaza: "知识库广场",
     navMyKb: "我的知识库",
     navAddKb: "添加知识库",
@@ -367,7 +384,7 @@ const i18n = {
     newKb: "添加知识库",
     addKbSubtitle: "上传 tar 归档，填写名称与描述后构建索引。",
     kbTypeLabel: "知识库类型",
-    kbTypeTar: "压缩文件（.tar）",
+    kbTypeTar: "本地推送",
     kbTypeWebhook: "Webhook（GitLab / GitHub）",
     indexName: "名称",
     indexDescription: "描述",
@@ -375,11 +392,15 @@ const i18n = {
     readmePreview: "预览",
     readmeEdit: "编辑",
     archiveLabel: "归档（.tar / .tar.gz / .tgz）",
+    pushArchiveLabel: "本地推送设置",
     webhookAddKbSectionTitle: "Webhook 与仓库（HTTP 克隆地址、平台、Secret）",
     webhookProviderLabel: "Webhook 平台",
     webhookProviderGitlab: "GitLab",
     webhookProviderGithub: "GitHub",
     webhookUrlLabel: "Webhook 链接",
+    folderPushUrlLabel: "文件夹推送 URL",
+    folderPushHint: "你的客户端可向此地址上传 tar 包，服务端会自动排队增量重建。",
+    folderPushHeaderHint: "请求头携带：X-Webhook-Token: <secret>",
     webhookSecretLabel: "Secret Token",
     webhookRepoUrlLabel: "仓库地址（HTTP/HTTPS）",
     webhookBranchLabel: "构建分支",
@@ -404,6 +425,16 @@ const i18n = {
     back: "返回列表",
     search: "检索",
     searchPlaceholder: "输入问题…",
+    quickQaEntryTitle: "快速问答",
+    quickQaEntryDesc: "打开一个基于本地 LangGraph agent 的 AI 问答界面。",
+    quickQaOpen: "打开 AI 问答",
+    quickQaTitle: "快速问答",
+    quickQaSubtitle: "快速测试知识库效果，注意本页面内容刷新不保留",
+    quickQaInputLabel: "你的问题",
+    quickQaInputPlaceholder: "例如：现在几点了？",
+    quickQaSend: "发送",
+    quickQaThinking: "思考中...",
+    quickQaWelcome: "你好！我是RAGret问答助手，有什么想问的呢？",
     runSearch: "检索",
     results: "结果",
     noResults: "暂无结果，请先提问。",
@@ -475,6 +506,7 @@ const i18n = {
     skillTitle: "SKILL.md",
     skillSubtitle: "项目技能文档",
     skillDownload: "下载 ZIP",
+    skillDownloadQuick: "下载 RAGret SKILL.md",
     taskJobRemovedAfterDone: "构建已完成，正在返回任务列表。",
     taskCancelledRemoved: "任务已取消。",
     buildDone: (n) => `已构建「${n}」。`,
@@ -643,10 +675,12 @@ function parseRoute() {
   if (p === "/register") return { type: "register" };
   if (p === "/add-kb") return { type: "addKb" };
   if (p === "/my-kb") return { type: "myKb" };
+  if (p === "/plaza") return { type: "home" };
+  if (p === "/quick-qa") return { type: "quickQa" };
+  if (p === "/") return { type: "quickQa" };
   if (p === "/profile") return { type: "profile" };
   if (p === "/change-password") return { type: "changePassword" };
   if (p === "/tasks" || p === "/tasks/") return { type: "tasks" };
-  if (p === "/skill" || p === "/skill/") return { type: "skill" };
   if (p.startsWith("/tasks/")) {
     const rest = p
       .slice("/tasks/".length)
@@ -667,7 +701,7 @@ function parseRoute() {
     if (segs[1] === "manage") return { type: "kbManage", name };
     return { type: "kb", name };
   }
-  if (p === "/" || p === "") return { type: "home" };
+  if (p === "/" || p === "") return { type: "quickQa" };
   return { type: "home" };
 }
 
@@ -759,74 +793,133 @@ function sanitizeFenceLang(s) {
   return t;
 }
 
+function markdownInlineToHtml(s) {
+  const placeholders = [];
+  let html = esc(String(s || ""));
+  html = html.replace(/`([^`]+)`/g, (_, codeText) => {
+    const token = `__RAGRET_MD_CODE_${placeholders.length}__`;
+    placeholders.push(`<code class="md-inline-code">${codeText}</code>`);
+    return token;
+  });
+  html = html.replace(
+    /\[([^\]]+)\]\((https?:\/\/[^\s)]+)\)/g,
+    '<a href="$2" target="_blank" rel="noreferrer">$1</a>',
+  );
+  html = html.replace(/\*\*([^*]+)\*\*/g, "<strong>$1</strong>");
+  html = html.replace(/\*([^*\n]+)\*/g, "<em>$1</em>");
+  return html.replace(/__RAGRET_MD_CODE_(\d+)__/g, (_, i) => placeholders[Number(i)] || "");
+}
+
 function markdownToHtml(md) {
   const src = String(md || "").replace(/\r\n/g, "\n");
   const lines = src.split("\n");
   const out = [];
-  let inCode = false;
-  let codeLines = [];
-  let fenceLang = "";
-  for (const raw of lines) {
-    const line = raw;
-    const fenceMatch = line.trim().match(/^```(\S*)\s*$/);
+  let i = 0;
+  const parseTableCells = (line) =>
+    String(line || "")
+      .trim()
+      .replace(/^\|/, "")
+      .replace(/\|$/, "")
+      .split("|")
+      .map((c) => c.trim());
+  const isTableSepLine = (line) => {
+    const cells = parseTableCells(line);
+    if (!cells.length) return false;
+    return cells.every((c) => /^:?-{3,}:?$/.test(c));
+  };
+  while (i < lines.length) {
+    const line = lines[i];
+    const trimmed = line.trim();
+    const fenceMatch = trimmed.match(/^```(\S*)\s*$/);
     if (fenceMatch) {
-      if (!inCode) {
-        inCode = true;
-        fenceLang = sanitizeFenceLang(fenceMatch[1]);
-        codeLines = [];
-      } else {
-        const langClass = fenceLang ? ` language-${esc(fenceLang)}` : "";
-        out.push(
-          `<pre class="md-fence"><code class="md-fence-code${langClass}">${codeLines.map(esc).join("\n")}</code></pre>`,
-        );
-        inCode = false;
-        codeLines = [];
-        fenceLang = "";
+      const fenceLang = sanitizeFenceLang(fenceMatch[1]);
+      const codeLines = [];
+      i += 1;
+      while (i < lines.length && !lines[i].trim().match(/^```(\S*)\s*$/)) {
+        codeLines.push(lines[i]);
+        i += 1;
       }
+      if (i < lines.length) i += 1;
+      const langClass = fenceLang ? ` language-${esc(fenceLang)}` : "";
+      out.push(`<pre class="md-fence"><code class="md-fence-code${langClass}">${codeLines.map(esc).join("\n")}</code></pre>`);
       continue;
     }
-    if (inCode) {
-      codeLines.push(line);
+    if (!trimmed) {
+      i += 1;
       continue;
     }
-    if (/^###\s+/.test(line)) {
-      out.push(`<h3>${esc(line.replace(/^###\s+/, ""))}</h3>`);
+    const heading = trimmed.match(/^(#{1,6})\s+(.+)$/);
+    if (heading) {
+      const n = heading[1].length;
+      out.push(`<h${n}>${markdownInlineToHtml(heading[2])}</h${n}>`);
+      i += 1;
       continue;
     }
-    if (/^##\s+/.test(line)) {
-      out.push(`<h2>${esc(line.replace(/^##\s+/, ""))}</h2>`);
+    if (/^(-{3,}|\*{3,}|_{3,})$/.test(trimmed)) {
+      out.push('<hr class="md-hr"/>');
+      i += 1;
       continue;
     }
-    if (/^#\s+/.test(line)) {
-      out.push(`<h1>${esc(line.replace(/^#\s+/, ""))}</h1>`);
+    if (/^>\s+/.test(trimmed)) {
+      const bq = [];
+      while (i < lines.length && /^>\s+/.test(lines[i].trim())) {
+        bq.push(lines[i].trim().replace(/^>\s+/, ""));
+        i += 1;
+      }
+      out.push(`<blockquote>${bq.map(markdownInlineToHtml).join("<br/>")}</blockquote>`);
       continue;
     }
-    if (/^-\s+/.test(line)) {
-      out.push(`<li>${esc(line.replace(/^-+\s+/, ""))}</li>`);
+    if (/^\s*-\s+/.test(line)) {
+      const items = [];
+      while (i < lines.length && /^\s*-\s+/.test(lines[i])) {
+        items.push(lines[i].replace(/^\s*-\s+/, ""));
+        i += 1;
+      }
+      out.push(`<ul>${items.map((it) => `<li>${markdownInlineToHtml(it)}</li>`).join("")}</ul>`);
       continue;
     }
-    if (/^>\s+/.test(line)) {
-      out.push(`<blockquote>${esc(line.replace(/^>\s+/, ""))}</blockquote>`);
+    if (/^\s*\d+\.\s+/.test(line)) {
+      const items = [];
+      while (i < lines.length && /^\s*\d+\.\s+/.test(lines[i])) {
+        items.push(lines[i].replace(/^\s*\d+\.\s+/, ""));
+        i += 1;
+      }
+      out.push(`<ol>${items.map((it) => `<li>${markdownInlineToHtml(it)}</li>`).join("")}</ol>`);
       continue;
     }
-    if (!line.trim()) {
-      out.push("");
+    if (trimmed.includes("|") && i + 1 < lines.length && isTableSepLine(lines[i + 1])) {
+      const headCells = parseTableCells(line);
+      i += 2;
+      const bodyRows = [];
+      while (i < lines.length && lines[i].trim().includes("|")) {
+        bodyRows.push(parseTableCells(lines[i]));
+        i += 1;
+      }
+      const thead = `<thead><tr>${headCells.map((c) => `<th>${markdownInlineToHtml(c)}</th>`).join("")}</tr></thead>`;
+      const tbody = bodyRows.length
+        ? `<tbody>${bodyRows
+            .map((cells) => `<tr>${headCells.map((_, idx) => `<td>${markdownInlineToHtml(cells[idx] || "")}</td>`).join("")}</tr>`)
+            .join("")}</tbody>`
+        : "";
+      out.push(`<table class="md-table">${thead}${tbody}</table>`);
       continue;
     }
-    let html = esc(line)
-      .replace(/\*\*(.+?)\*\*/g, "<strong>$1</strong>")
-      .replace(/\*(.+?)\*/g, "<em>$1</em>")
-      .replace(/`([^`]+)`/g, '<code class="md-inline-code">$1</code>')
-      .replace(/\[([^\]]+)\]\((https?:\/\/[^\s)]+)\)/g, '<a href="$2" target="_blank" rel="noreferrer">$1</a>');
-    out.push(`<p>${html}</p>`);
+    const para = [];
+    while (i < lines.length && lines[i].trim() && !lines[i].trim().match(/^```(\S*)\s*$/)) {
+      const t = lines[i].trim();
+      if (/^(#{1,6})\s+/.test(t) || /^>\s+/.test(t) || /^\s*-\s+/.test(lines[i]) || /^\s*\d+\.\s+/.test(lines[i])) break;
+      if (/^(-{3,}|\*{3,}|_{3,})$/.test(t)) break;
+      if (t.includes("|") && i + 1 < lines.length && isTableSepLine(lines[i + 1])) break;
+      para.push(t);
+      i += 1;
+    }
+    if (para.length) {
+      out.push(`<p>${markdownInlineToHtml(para.join(" "))}</p>`);
+      continue;
+    }
+    i += 1;
   }
-  let merged = out.join("\n");
-  merged = merged.replace(/(<li>[\s\S]*?<\/li>\n?)+/g, (m) => `<ul>${m}</ul>`);
-  if (inCode) {
-    const langClass = fenceLang ? ` language-${esc(fenceLang)}` : "";
-    merged += `<pre class="md-fence"><code class="md-fence-code${langClass}">${codeLines.map(esc).join("\n")}</code></pre>`;
-  }
-  return merged;
+  return out.join("\n");
 }
 
 function showConfirmDialog(message) {
@@ -1024,20 +1117,20 @@ function wireKbLockChoiceNewForm() {
 }
 
 function renderShellSidebar(active) {
+  const quickQaCl = active === "quickQa" ? " active" : "";
   const plazaCl = active === "plaza" ? " active" : "";
   const myCl = active === "my" ? " active" : "";
   const addCl = active === "add" ? " active" : "";
   const tasksCl = active === "tasks" ? " active" : "";
-  const skillCl = active === "skill" ? " active" : "";
   const profCl = active === "profile" ? " active" : "";
   return `
     <aside class="sidebar" aria-label="${esc(T("navSection"))}">
       <div class="sidebar-title">${esc(T("navSection"))}</div>
+      <button type="button" class="nav-item${quickQaCl}" data-nav="quickQa">${esc(T("navQuickQa"))}</button>
       <button type="button" class="nav-item${plazaCl}" data-nav="plaza">${esc(T("navKbPlaza"))}</button>
       <button type="button" class="nav-item${myCl}" data-nav="my">${esc(T("navMyKb"))}</button>
       <button type="button" class="nav-item${addCl}" data-nav="add">${esc(T("navAddKb"))}</button>
       <button type="button" class="nav-item${tasksCl}" data-nav="tasks">${esc(T("navTasks"))}</button>
-      <button type="button" class="nav-item${skillCl}" data-nav="skill">${esc(T("navSkill"))}</button>
       <button type="button" class="nav-item${profCl}" data-nav="profile">${esc(T("navAccount"))}</button>
       <div class="sidebar-spacer" aria-hidden="true"></div>
       <button type="button" class="nav-item nav-item--logout" id="sidebar-logout-btn">${esc(T("logout"))}</button>
@@ -1137,14 +1230,31 @@ function bindShellChrome(user) {
   appEl.querySelectorAll("[data-nav]").forEach((el) => {
     el.addEventListener("click", () => {
       const n = el.getAttribute("data-nav");
-      if (n === "plaza") go("/");
+      if (n === "plaza") go("/plaza");
+      if (n === "quickQa") go("/");
       if (n === "my") go("/my-kb");
       if (n === "add") go("/add-kb");
       if (n === "tasks") go("/tasks");
-      if (n === "skill") go("/skill");
       if (n === "profile") go("/profile");
     });
   });
+}
+
+async function downloadSkillZip() {
+  const res = await fetch("/api/skill-md/download", { headers: { ...authHeaders() } });
+  if (!res.ok) {
+    const j = await res.json().catch(() => ({}));
+    throw new Error(j.error || `HTTP ${res.status}`);
+  }
+  const blob = await res.blob();
+  const u = URL.createObjectURL(blob);
+  const a = document.createElement("a");
+  a.href = u;
+  a.download = "ragret.zip";
+  document.body.appendChild(a);
+  a.click();
+  a.remove();
+  URL.revokeObjectURL(u);
 }
 
 function bindUploadForm() {
@@ -1157,6 +1267,7 @@ function bindUploadForm() {
   const tarBlock = document.getElementById("kb-source-tar-block");
   const webhookBlock = document.getElementById("kb-source-webhook-block");
   const uploadBlock = document.getElementById("kb-upload-progress-block");
+  const folderPushUrlInput = document.getElementById("kb-folder-push-url");
   const webhookUrlInput = document.getElementById("kb-webhook-url");
   const webhookSecretInput = document.getElementById("kb-webhook-secret");
   const webhookSecretEyeBtn = document.getElementById("kb-webhook-secret-eye");
@@ -1166,6 +1277,9 @@ function bindUploadForm() {
   const webhookProviderEl = document.getElementById("kb-webhook-provider");
   const nameInput = document.getElementById("kb-name");
   const sourceSectionTitleEl = document.getElementById("kb-source-section-title");
+  const pushSecretInput = document.getElementById("kb-push-secret");
+  const pushSecretEyeBtn = document.getElementById("kb-push-secret-eye");
+  const pushSecretRegenBtn = document.getElementById("kb-push-secret-regen");
   let webhookSecretRaw = "";
   let webhookSecretVisible = false;
   const webhookBases = {
@@ -1176,6 +1290,11 @@ function bindUploadForm() {
     if (!webhookSecretInput) return;
     webhookSecretInput.value = webhookSecretVisible ? webhookSecretRaw : "*".repeat(String(webhookSecretRaw || "").length);
     webhookSecretEyeBtn.textContent = webhookSecretVisible ? T("apiKeyEyeHide") : T("apiKeyEyeShow");
+    if (pushSecretInput) {
+      pushSecretInput.value = webhookSecretVisible ? webhookSecretRaw : "*".repeat(String(webhookSecretRaw || "").length);
+    }
+    if (pushSecretEyeBtn) pushSecretEyeBtn.textContent = webhookSecretVisible ? T("apiKeyEyeHide") : T("apiKeyEyeShow");
+    if (folderPushUrlInput) folderPushUrlInput.value = buildFolderPushUrl();
   };
   const generateWebhookSecret = async () => {
     const d = await fetchJSON("/api/user/webhook-secret/generate");
@@ -1206,8 +1325,14 @@ function bindUploadForm() {
     const base = webhookBaseUrl.endsWith("/") ? webhookBaseUrl : `${webhookBaseUrl}/`;
     return `${base}${seg}`;
   };
+  const buildFolderPushUrl = () => {
+    const kb = (nameInput?.value || "").trim();
+    const seg = kb ? encodeURIComponent(kb) : "<kb-name>";
+    return `${window.location.origin}/api/push/${seg}`;
+  };
   const refreshWebhookUrl = () => {
     if (webhookUrlInput) webhookUrlInput.value = buildWebhookUrl();
+    if (folderPushUrlInput) folderPushUrlInput.value = buildFolderPushUrl();
   };
   const applyWebhookProviderUi = () => {
     const prov = webhookProviderEl?.value === "github" ? "github" : "gitlab";
@@ -1224,10 +1349,13 @@ function bindUploadForm() {
     if (uploadBlock) uploadBlock.style.display = tp === "tar" ? "" : "none";
     if (webhookBlock) webhookBlock.style.display = tp === "webhook" ? "" : "none";
     if (sourceSectionTitleEl) {
-      sourceSectionTitleEl.textContent = tp === "webhook" ? T("webhookAddKbSectionTitle") : T("archiveLabel");
+      sourceSectionTitleEl.textContent = tp === "webhook" ? T("webhookAddKbSectionTitle") : T("pushArchiveLabel");
     }
     applyWebhookProviderUi();
     if (tp === "webhook" && !webhookSecretRaw) {
+      void generateWebhookSecret();
+    }
+    if (tp === "tar" && !webhookSecretRaw) {
       void generateWebhookSecret();
     }
   };
@@ -1241,7 +1369,18 @@ function bindUploadForm() {
     webhookSecretVisible = !webhookSecretVisible;
     refreshWebhookSecretInput();
   });
+  pushSecretEyeBtn?.addEventListener("click", () => {
+    webhookSecretVisible = !webhookSecretVisible;
+    refreshWebhookSecretInput();
+  });
   webhookSecretRegenBtn?.addEventListener("click", async () => {
+    try {
+      await generateWebhookSecret();
+    } catch (e) {
+      setStatus(e.message, true);
+    }
+  });
+  pushSecretRegenBtn?.addEventListener("click", async () => {
     try {
       await generateWebhookSecret();
     } catch (e) {
@@ -1294,7 +1433,7 @@ function bindUploadForm() {
           source_type: sourceType,
           webhook_provider:
             sourceType === "webhook" ? (webhookProviderEl?.value === "github" ? "github" : "gitlab") : undefined,
-          webhook_secret: sourceType === "webhook" ? webhookSecretRaw : undefined,
+          webhook_secret: webhookSecretRaw || undefined,
           repo_url: sourceType === "webhook" ? String(webhookRepoUrlInput?.value || "").trim() : undefined,
           ref: sourceType === "webhook" ? String(webhookRefInput?.value || "").trim() : undefined,
           is_public,
@@ -1445,6 +1584,174 @@ async function renderPlaza(user) {
     await hydrateKbCardOwnerAvatars();
     await hydrateKbCardIcons();
     bindKbGridNavigation(user);
+  });
+}
+
+function appendQuickQaMessage(host, role, text) {
+  if (!host) return;
+  const div = document.createElement("div");
+  div.className = `quick-qa-msg ${role === "user" ? "is-user" : "is-assistant"}`;
+  if (role === "assistant") {
+    div.innerHTML = `<div class="quick-qa-bubble quick-qa-msg-md md-content">${markdownToHtml(String(text || ""))}</div>`;
+  } else {
+    div.innerHTML = `<div class="quick-qa-bubble quick-qa-msg-md md-content quick-qa-msg-plain"><p>${esc(String(text || "")).replace(/\n/g, "<br/>")}</p></div>`;
+  }
+  host.appendChild(div);
+  host.scrollTop = host.scrollHeight;
+}
+
+function appendQuickQaThinking(host, label) {
+  if (!host) return null;
+  const div = document.createElement("div");
+  div.className = "quick-qa-msg is-assistant is-thinking";
+  div.innerHTML = `
+    <div class="quick-qa-bubble quick-qa-msg-md md-content quick-qa-msg-plain quick-qa-thinking-bubble">
+      <p>
+        <span class="thinking-label">${esc(String(label || ""))}</span>
+        <span class="thinking-dots" aria-hidden="true"><i></i><i></i><i></i></span>
+      </p>
+    </div>`;
+  host.appendChild(div);
+  host.scrollTop = host.scrollHeight;
+  return div;
+}
+
+function setQuickQaThinkingLabel(thinkingEl, label) {
+  if (!thinkingEl) return;
+  const lab = thinkingEl.querySelector(".thinking-label");
+  if (lab) lab.textContent = String(label || "");
+}
+
+async function renderQuickQa(user) {
+  appEl.innerHTML = `
+    <div class="app-shell">
+      ${renderShellSidebar("quickQa")}
+      <div class="shell-main">
+        <div class="shell-content">
+          ${renderTopbar(user, { title: T("quickQaTitle"), subtitle: T("quickQaSubtitle") })}
+          <div class="shell-body">
+            <div class="quick-qa-shell">
+              <div id="quick-qa-messages" class="quick-qa-messages"></div>
+              <form id="quick-qa-form" class="quick-qa-form">
+                <div class="quick-qa-form-head">
+                  <div aria-hidden="true"></div>
+                  <button type="button" class="secondary quick-qa-skill-btn" id="quick-qa-skill-download-btn">${esc(T("skillDownloadQuick"))}</button>
+                </div>
+                <div class="quick-qa-input-wrap">
+                  <textarea id="quick-qa-input" rows="2" placeholder="${esc(T("quickQaInputPlaceholder"))}" required></textarea>
+                  <button id="quick-qa-send-btn" class="quick-qa-send-inside" type="submit">${esc(T("quickQaSend"))}</button>
+                </div>
+              </form>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+  `;
+  bindShellChrome(user);
+  void refreshTopbarAvatar(user);
+
+  const msgs = document.getElementById("quick-qa-messages");
+  const form = document.getElementById("quick-qa-form");
+  const input = document.getElementById("quick-qa-input");
+  const sendBtn = document.getElementById("quick-qa-send-btn");
+  const chatMessages = [];
+  input?.addEventListener("keydown", (e) => {
+    if (e.key === "Enter" && !e.shiftKey) {
+      e.preventDefault();
+      form?.requestSubmit();
+    }
+  });
+  document.getElementById("quick-qa-skill-download-btn")?.addEventListener("click", async () => {
+    try {
+      await downloadSkillZip();
+    } catch (e) {
+      setStatus(e.message, true);
+    }
+  });
+  appendQuickQaMessage(msgs, "assistant", T("quickQaWelcome"));
+  chatMessages.push({ role: "assistant", content: String(T("quickQaWelcome")) });
+  form?.addEventListener("submit", async (e) => {
+    e.preventDefault();
+    const q = String(input?.value || "").trim();
+    if (!q) return;
+    appendQuickQaMessage(msgs, "user", q);
+    chatMessages.push({ role: "user", content: q });
+    if (input) input.value = "";
+    if (sendBtn) {
+      sendBtn.disabled = true;
+      sendBtn.textContent = T("quickQaThinking");
+    }
+    const thinkingEl = appendQuickQaThinking(msgs, T("quickQaThinking"));
+    try {
+      const res = await fetch("/api/quick-qa", {
+        method: "POST",
+        headers: { "Content-Type": "application/json", ...authHeaders() },
+        body: JSON.stringify({ question: q, messages: chatMessages, stream: true, lang: currentLang }),
+      });
+      if (res.status === 401) {
+        setToken("");
+        go("/login");
+        return;
+      }
+      if (!res.ok) {
+        const j = await res.json().catch(() => ({}));
+        throw new Error(j.error || `HTTP ${res.status}`);
+      }
+      if (!res.body) {
+        throw new Error("Empty response stream");
+      }
+      const reader = res.body.getReader();
+      const decoder = new TextDecoder();
+      let buf = "";
+      let finalData = null;
+      const processLine = (line) => {
+        const ln = String(line || "").trim();
+        if (!ln) return;
+        const evt = JSON.parse(ln);
+        if (evt.type === "tool_event") {
+          setQuickQaThinkingLabel(thinkingEl, String(evt.text || T("quickQaThinking")));
+        } else if (evt.type === "error") {
+          throw new Error(String(evt.error || "Error"));
+        } else if (evt.type === "final") {
+          finalData = evt;
+        }
+      };
+      while (true) {
+        const { done, value } = await reader.read();
+        if (done) {
+          buf += decoder.decode();
+          break;
+        }
+        buf += decoder.decode(value, { stream: true });
+        let idx;
+        while ((idx = buf.indexOf("\n")) >= 0) {
+          const line = buf.slice(0, idx);
+          buf = buf.slice(idx + 1);
+          processLine(line);
+        }
+      }
+      if (buf.trim()) processLine(buf);
+      if (!finalData) {
+        throw new Error("No final response from stream");
+      }
+      thinkingEl?.remove();
+      const ans = String(finalData?.answer || "");
+      if (!ans) throw new Error("Empty answer from server");
+      appendQuickQaMessage(msgs, "assistant", ans);
+      chatMessages.push({ role: "assistant", content: ans });
+    } catch (err) {
+      thinkingEl?.remove();
+      const errMsg = String(err?.message || "Error");
+      appendQuickQaMessage(msgs, "assistant", errMsg);
+      chatMessages.push({ role: "assistant", content: errMsg });
+    } finally {
+      if (sendBtn) {
+        sendBtn.disabled = false;
+        sendBtn.textContent = T("quickQaSend");
+      }
+      input?.focus();
+    }
   });
 }
 
@@ -1631,6 +1938,13 @@ async function renderAddKb(user) {
                       <button type="button" class="secondary" id="kb-webhook-secret-regen">${esc(T("webhookSecretRegenerate"))}</button>
                     </p>
                   </div>
+                  <label><span>${esc(T("folderPushUrlLabel"))}</span><input id="kb-folder-push-url" readonly /></label>
+                  <label><span>${esc(T("webhookSecretLabel"))}</span><input id="kb-push-secret" readonly /></label>
+                  <p class="form-actions" style="margin-top:0.5rem">
+                    <button type="button" class="secondary" id="kb-push-secret-eye">${esc(T("apiKeyEyeShow"))}</button>
+                    <button type="button" class="secondary" id="kb-push-secret-regen">${esc(T("webhookSecretRegenerate"))}</button>
+                  </p>
+                  <p class="muted small">${esc(T("folderPushHint"))}<br />${esc(T("folderPushHeaderHint"))}</p>
                 </div>
                 <hr class="hr-soft hr-soft--kb-detail" />
                 <div class="kb-detail-block" id="kb-upload-progress-block">
@@ -2423,6 +2737,13 @@ async function renderKbManage(user, name) {
     isOwner && !legacy && !isWebhook
       ? `<div class="kb-detail-block">
           <h2 class="kb-detail-block-title">${esc(T("kbUpdateCorpusTitle"))}</h2>
+          <label><span>${esc(T("folderPushUrlLabel"))}</span><input id="kb-manage-folder-push-url" readonly value="${esc(String(meta?.folder_push_url || ""))}" /></label>
+          <label><span>${esc(T("webhookSecretLabel"))}</span><input id="kb-manage-push-secret" readonly value="${esc(String(meta?.webhook_secret_masked || ""))}" /></label>
+          <p class="form-actions" style="margin-top:0.75rem">
+            <button type="button" class="secondary" id="kb-manage-push-secret-eye-btn">${esc(T("apiKeyEyeShow"))}</button>
+            <button type="button" id="kb-manage-push-secret-regen-btn">${esc(T("webhookSecretRegenerate"))}</button>
+          </p>
+          <p class="muted small">${esc(T("folderPushHint"))}<br />${esc(T("folderPushHeaderHint"))}</p>
           <div class="archive-row manage-archive-row">
             <input type="file" id="kb-manage-archive" class="hidden-file-input" accept=".tar,.tgz,.tar.gz,.tar.bz2,.tar.xz,application/x-tar" />
             <button type="button" class="secondary" id="kb-manage-pick-archive">${esc(T("chooseFile"))}</button>
@@ -2440,6 +2761,8 @@ async function renderKbManage(user, name) {
       ? `<div class="kb-detail-block">
           <h2 class="kb-detail-block-title">${esc(T("kbUpdateCorpusTitle"))}</h2>
           <p class="muted small">${esc(T("webhookProviderLabel"))}: ${esc(String(meta?.webhook_provider || "").toLowerCase() === "github" ? T("webhookProviderGithub") : T("webhookProviderGitlab"))}</p>
+          <label><span>${esc(T("folderPushUrlLabel"))}</span><input id="kb-manage-folder-push-url" readonly value="${esc(String(meta?.folder_push_url || ""))}" /></label>
+          <p class="muted small">${esc(T("folderPushHint"))}</p>
           <label><span>${esc(T("webhookUrlLabel"))}</span><input id="kb-manage-webhook-url" readonly value="${esc(String(meta?.webhook_url || ""))}" /></label>
           <label><span>${esc(T("webhookSecretLabel"))}</span><input id="kb-manage-webhook-secret" readonly value="${esc(String(meta?.webhook_secret_masked || ""))}" placeholder="${esc(String(meta?.webhook_provider || "").toLowerCase() === "github" ? T("webhookSecretPlaceholderGithub") : T("webhookSecretPlaceholderGitlab"))}" /></label>
           <p class="form-actions" style="margin-top:0.75rem">
@@ -2476,15 +2799,6 @@ async function renderKbManage(user, name) {
                 ${membersSection ? `<hr class="hr-soft hr-soft--kb-detail" />${membersSection}` : ""}
                 ${corpusUpdateSection ? `<hr class="hr-soft hr-soft--kb-detail" />${corpusUpdateSection}` : ""}
                 ${webhookManageSection ? `<hr class="hr-soft hr-soft--kb-detail" />${webhookManageSection}` : ""}
-                <hr class="hr-soft hr-soft--kb-detail" />
-                <div class="kb-detail-block">
-                  <h2 class="kb-detail-block-title">${esc(T("search"))}</h2>
-                  <div class="search-row">
-                    <input id="search-q" placeholder="${esc(T("searchPlaceholder"))}" />
-                    <button type="button" id="search-btn">${esc(T("runSearch"))}</button>
-                  </div>
-                  <pre id="search-out" class="search-out">${esc(T("noResults"))}</pre>
-                </div>
                 ${canDelete ? `<hr class="hr-soft hr-soft--kb-detail" /><div class="kb-detail-block kb-detail-block--danger"><button type="button" class="danger" id="del-kb-btn">${esc(T("deleteKb"))}</button></div>` : ""}
             </div>
             </div>
@@ -2499,6 +2813,43 @@ async function renderKbManage(user, name) {
   void ensureKbIconOnImg(document.getElementById("kb-icon-edit-preview"), name);
 
   if (corpusUpdateSection) {
+    let pushSecretRaw = "";
+    let pushSecretVisible = false;
+    const pushSecretInput = document.getElementById("kb-manage-push-secret");
+    const pushSecretEyeBtn = document.getElementById("kb-manage-push-secret-eye-btn");
+    const refreshPushSecret = () => {
+      if (!pushSecretInput) return;
+      pushSecretInput.value = pushSecretVisible
+        ? pushSecretRaw
+        : "*".repeat(String(pushSecretRaw || "").length || Number(meta?.webhook_secret_len || 0));
+      if (pushSecretEyeBtn) pushSecretEyeBtn.textContent = pushSecretVisible ? T("apiKeyEyeHide") : T("apiKeyEyeShow");
+    };
+    pushSecretEyeBtn?.addEventListener("click", async () => {
+      if (!pushSecretRaw) {
+        try {
+          const d = await fetchJSON(`/api/kb/${encodeURIComponent(name)}/webhook-secret`);
+          pushSecretRaw = String(d?.secret || "");
+        } catch (e) {
+          setStatus(e.message, true);
+          return;
+        }
+      }
+      pushSecretVisible = !pushSecretVisible;
+      refreshPushSecret();
+    });
+    document.getElementById("kb-manage-push-secret-regen-btn")?.addEventListener("click", async () => {
+      try {
+        await fetchJSON(`/api/kb/${encodeURIComponent(name)}`, {
+          method: "PATCH",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ regenerate_webhook_secret: true }),
+        });
+        setStatus(T("saveDone"));
+        await render();
+      } catch (e) {
+        setStatus(e.message, true);
+      }
+    });
     const pickedEl = document.getElementById("kb-manage-picked-file-name");
     if (manageCorpusUploadId && manageCorpusKbFor === name) {
       if (pickedEl) pickedEl.textContent = T("kbManageCorpusStaged");
@@ -2648,23 +2999,6 @@ async function renderKbManage(user, name) {
       }
     });
   }
-
-  const runSearch = async () => {
-    const q = document.getElementById("search-q").value.trim();
-    const out = document.getElementById("search-out");
-    if (!q) return;
-    out.textContent = "…";
-    try {
-      const data = await fetchJSON(`/api/search/${encodeURIComponent(name)}?${new URLSearchParams({ query: q })}`);
-      out.textContent = data.result || "";
-    } catch (e) {
-      out.textContent = e.message;
-    }
-  };
-  document.getElementById("search-btn").addEventListener("click", runSearch);
-  document.getElementById("search-q").addEventListener("keydown", (e) => {
-    if (e.key === "Enter") runSearch();
-  });
 
   const saveDescBtn = document.getElementById("save-desc-btn");
   if (saveDescBtn) {
@@ -3110,60 +3444,6 @@ async function renderTaskDetail(user, jobId) {
   }
 }
 
-async function renderSkillPage(user) {
-  let content = "";
-  try {
-    const d = await fetchJSON("/api/skill-md");
-    content = String(d?.content || "");
-  } catch (e) {
-    setStatus(e.message, true);
-  }
-  appEl.innerHTML = `
-    <div class="app-shell">
-      ${renderShellSidebar("skill")}
-      <div class="shell-main">
-        <div class="shell-content">
-          ${renderTopbar(user, { title: T("skillTitle"), subtitle: T("skillSubtitle") })}
-          <div class="shell-body profile-panel kb-detail-shell page-frame page-frame--wide">
-            <div class="page-frame__inner">
-              <div class="kb-detail-flow">
-                <div class="kb-detail-block kb-detail-actions">
-                  <button type="button" id="skill-download-btn">${esc(T("skillDownload"))}</button>
-                </div>
-                <hr class="hr-soft hr-soft--kb-detail" />
-                <div class="kb-detail-block">
-                  <div class="md-preview">${content ? markdownToHtml(content) : ""}</div>
-                </div>
-              </div>
-            </div>
-          </div>
-        </div>
-      </div>
-    </div>`;
-  bindShellChrome(user);
-  void refreshTopbarAvatar(user);
-  document.getElementById("skill-download-btn")?.addEventListener("click", async () => {
-    try {
-      const res = await fetch("/api/skill-md/download", { headers: { ...authHeaders() } });
-      if (!res.ok) {
-        const j = await res.json().catch(() => ({}));
-        throw new Error(j.error || `HTTP ${res.status}`);
-      }
-      const blob = await res.blob();
-      const u = URL.createObjectURL(blob);
-      const a = document.createElement("a");
-      a.href = u;
-      a.download = "ragret.zip";
-      document.body.appendChild(a);
-      a.click();
-      a.remove();
-      URL.revokeObjectURL(u);
-    } catch (e) {
-      setStatus(e.message, true);
-    }
-  });
-}
-
 async function render() {
   const route = parseRoute();
   document.documentElement.lang = currentLang === "zh" ? "zh-CN" : "en";
@@ -3219,6 +3499,11 @@ async function render() {
     return;
   }
 
+  if (route.type === "quickQa") {
+    await renderQuickQa(user);
+    return;
+  }
+
   if (route.type === "addKb") {
     await renderAddKb(user);
     return;
@@ -3231,11 +3516,6 @@ async function render() {
 
   if (route.type === "taskDetail") {
     await renderTaskDetail(user, route.jobId);
-    return;
-  }
-
-  if (route.type === "skill") {
-    await renderSkillPage(user);
     return;
   }
 
