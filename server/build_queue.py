@@ -674,7 +674,9 @@ def run_one_build_job(
                 app_store.update_knowledge_base_description(key, description)
                 app_store.update_knowledge_base_readme(key, readme_effective)
                 app_store.update_knowledge_base_public(key, is_public_job)
-                app_store.update_knowledge_base_icon(key, icon_key)
+                rec_icon = app_store.get_kb_record_any_state(key)
+                if rec_icon is None or "/" not in str(rec_icon.icon or ""):
+                    app_store.update_knowledge_base_icon(key, icon_key)
                 if task_kind == "webhook":
                     app_store.update_knowledge_base_webhook_source(
                         key,

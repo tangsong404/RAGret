@@ -1456,8 +1456,8 @@ function bindUploadForm() {
         try {
           kbIconBlobCache.delete(name);
           await fetchJSON(`/api/kb/${encodeURIComponent(name)}/icon`, { method: "POST", body: fd });
-        } catch {
-          /* KB may still be pending; user can upload again from manage */
+        } catch (iconErr) {
+          console.warn("KB icon upload after create:", iconErr);
         }
       }
       const jid = start.job_id;

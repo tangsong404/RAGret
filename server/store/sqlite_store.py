@@ -748,8 +748,6 @@ class SqliteAppStore:
             kb = self._kb_row_by_name(conn, kb_name)
             if kb is None:
                 return None
-            if not self._kb_ready_from_row(kb):
-                return None
             kid = int(kb["id"])
             mime = str(kb["icon"] or "").strip()
             if not mime or "/" not in mime:
@@ -764,8 +762,6 @@ class SqliteAppStore:
         with self._pool.acquire() as conn:
             kb = self._kb_row_by_name(conn, kb_name)
             if kb is None:
-                return False
-            if not self._kb_ready_from_row(kb):
                 return False
             kid = int(kb["id"])
             path = self._kb_icon_file(kid)
@@ -841,6 +837,8 @@ class SqliteAppStore:
             kb = self._kb_row_by_name(conn, kb_name)
             if kb is None:
                 return None
+            if int(kb["owner_id"]) == int(user_id):
+                return KBPermission(can_read=True, can_write=True, can_delete=True, is_owner=True)
             if not self._kb_ready_from_row(kb):
                 return None
             return self._permission(conn, int(user_id), kb)
