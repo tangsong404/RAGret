@@ -41,7 +41,8 @@ def client(store, model_cache):
 class TestSearch:
     def test_missing_query_param(self, client: TestClient):
         resp = client.get("/api/search/myindex")
-        assert resp.status_code == 422
+        assert resp.status_code == 400
+        assert resp.json()["ok"] is False
 
     def test_unknown_index(self, client: TestClient):
         resp = client.get("/api/search/nonexistent?query=hello")
@@ -85,4 +86,4 @@ class TestSearch:
             headers={"Authorization": f"Bearer {token}"},
         )
         assert resp.status_code == 500
-        assert "empty" in resp.json()["detail"].lower()
+        assert "empty" in resp.json()["error"].lower()

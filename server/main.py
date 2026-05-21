@@ -7,8 +7,9 @@ from fastapi import FastAPI
 from ragret.cache import IndexCache, ModelCache
 from ragret.registry import IndexRegistry
 from server.config import Settings, load_settings
+from server.exception_handlers import register_exception_handlers
 from server.middleware.auth import AuthMiddleware
-from server.routers import admin, auth, jobs, kb, search, upload, webhook
+from server.routers import admin, auth, health, jobs, kb, misc, search, upload, user, users, webhook
 from server.runtime_paths import default_registry_path, runtime_upload_dir
 from server.store.factory import create_app_store
 from server.store.protocol import AppStore
@@ -24,6 +25,7 @@ def create_app(
     registry: IndexRegistry | None = None,
 ) -> FastAPI:
     app = FastAPI(title="RAGret")
+    register_exception_handlers(app)
     root = (repo_root or Path.cwd()).resolve()
     app.state.repo_root = root
     app.state.settings = settings or load_settings()
@@ -38,6 +40,7 @@ def create_app(
     app.state.registry = reg
 
     app.add_middleware(AuthMiddleware)
+    app.include_router(health.router)
     app.include_router(auth.router)
     app.include_router(search.router)
     app.include_router(kb.router)
@@ -45,4 +48,7 @@ def create_app(
     app.include_router(upload.router)
     app.include_router(webhook.router)
     app.include_router(admin.router)
+    app.include_router(user.router)
+    app.include_router(users.router)
+    app.include_router(misc.router)
     return app

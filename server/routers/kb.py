@@ -1,6 +1,7 @@
 from __future__ import annotations
 
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, File, HTTPException, UploadFile
+from fastapi.responses import Response
 
 from ragret.registry import IndexRegistry
 from server.config import Settings
@@ -19,6 +20,18 @@ def list_indexes(
 ):
     try:
         indexes = kb_service.list_indexes(actor, store)
+    except PermissionError as e:
+        raise HTTPException(403, detail=str(e))
+    return {"ok": True, "indexes": indexes}
+
+
+@router.get("/subscribe-indexes")
+def list_subscribe_indexes(
+    actor: dict = Depends(require_actor),
+    store: AppStore = Depends(get_store),
+):
+    try:
+        indexes = kb_service.list_subscribe_indexes(actor, store)
     except PermissionError as e:
         raise HTTPException(403, detail=str(e))
     return {"ok": True, "indexes": indexes}
@@ -161,3 +174,98 @@ def unsubscribe(
     except LookupError as e:
         raise HTTPException(404, detail=str(e))
     return {"ok": True, "subscribed": False}
+
+
+@router.get("/kb/{name}/icon")
+def get_kb_icon(
+    name: str,
+    actor: dict = Depends(require_actor),
+    store: AppStore = Depends(get_store),
+):
+    try:
+        mime, raw = kb_service.load_kb_icon(name, actor, store)
+    except ValueError as e:
+        raise HTTPException(400, detail=str(e))
+    except PermissionError as e:
+        raise HTTPException(403, detail=str(e))
+    except LookupError as e:
+        raise HTTPException(404, detail=str(e))
+    return Response(content=raw, media_type=mime)
+
+
+@router.post("/kb/{name}/icon")
+async def upload_kb_icon(
+    name: str,
+    file: UploadFile = File(...),
+    actor: dict = Depends(require_actor),
+    store: AppStore = Depends(get_store),
+    settings: Settings = Depends(get_settings),
+):
+    raw = await file.read()
+    try:
+        kb_service.save_kb_icon(
+            name,
+            actor,
+            store,
+            file.content_type or "",
+            raw,
+            max_bytes=settings.avatar_max_bytes,
+        )
+    except ValueError as e:
+        raise HTTPException(400, detail=str(e))
+    except PermissionError as e:
+        raise HTTPException(403, detail=str(e))
+    except LookupError as e:
+        raise HTTPException(404, detail=str(e))
+    return {"ok": True}
+
+
+@router.delete("/kb/{name}/icon")
+def delete_kb_icon(
+    name: str,
+    actor: dict = Depends(require_actor),
+    store: AppStore = Depends(get_store),
+):
+    try:
+        kb_service.clear_kb_icon(name, actor, store)
+    except ValueError as e:
+        raise HTTPException(400, detail=str(e))
+    except PermissionError as e:
+        raise HTTPException(403, detail=str(e))
+    except LookupError as e:
+        raise HTTPException(404, detail=str(e))
+    return {"ok": True}
+
+
+@router.get("/kb/{name}/webhook-secret")
+def get_kb_webhook_secret(
+    name: str,
+    actor: dict = Depends(require_actor),
+    store: AppStore = Depends(get_store),
+):
+    try:
+        secret = kb_service.get_webhook_secret(name, actor, store)
+    except ValueError as e:
+        raise HTTPException(400, detail=str(e))
+    except PermissionError as e:
+        raise HTTPException(403, detail=str(e))
+    except LookupError as e:
+        raise HTTPException(404, detail=str(e))
+    return {"ok": True, "secret": secret}
+
+
+@router.post("/kb/{name}/webhook-pull")
+def kb_webhook_pull(
+    name: str,
+    user_id: int = Depends(require_user_id),
+    store: AppStore = Depends(get_store),
+):
+    try:
+        result = kb_service.trigger_webhook_pull(name, user_id, store)
+    except ValueError as e:
+        raise HTTPException(400, detail=str(e))
+    except PermissionError as e:
+        raise HTTPException(403, detail=str(e))
+    except LookupError as e:
+        raise HTTPException(404, detail=str(e))
+    return {"ok": True, **result}

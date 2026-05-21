@@ -5,8 +5,19 @@ from pathlib import Path
 from typing import Any
 
 from ragret.registry import IndexRegistry, safe_index_name
+from server.media_util import resolve_image_mime
 from server.serializers import serialize_kb
 from server.store.protocol import AppStore, KBRecord
+
+
+def list_subscribe_indexes(actor: dict[str, Any], store: AppStore) -> list[dict[str, Any]]:
+    if actor.get("kind") != "api_key":
+        raise PermissionError("Valid API key required")
+    uid = actor.get("user_id")
+    if uid is None:
+        raise PermissionError("Valid API key required")
+    rows = store.list_owned_and_subscribed_knowledge_bases_for_user(int(uid))
+    return [serialize_kb(r) for r in rows]
 
 
 def list_indexes(actor: dict[str, Any], store: AppStore) -> list[dict[str, Any]]:
@@ -277,3 +288,124 @@ def _patch_kb_owner(
         ):
             raise LookupError("Unknown knowledge base")
     return active_key
+
+
+def load_kb_icon(name: str, actor: dict[str, Any], store: AppStore) -> tuple[str, bytes]:
+    key = safe_index_name(name)
+    kind = actor.get("kind")
+    uid = actor.get("user_id")
+    if kind != "superuser":
+        if uid is None:
+            raise PermissionError("Login required")
+        perm = store.permission_for(int(uid), key)
+        if perm is None or not perm.can_read:
+            raise PermissionError("Forbidden")
+    icon = store.load_kb_icon(key)
+    if icon is None:
+        raise LookupError("No icon")
+    return icon
+
+
+def save_kb_icon(
+    name: str,
+    actor: dict[str, Any],
+    store: AppStore,
+    mime: str,
+    raw: bytes,
+    *,
+    max_bytes: int,
+) -> None:
+    key = safe_index_name(name)
+    _check_icon_write(actor, store, key)
+    if len(raw) > max_bytes:
+        raise ValueError(f"Icon must be ≤ {max_bytes} bytes")
+    resolved = resolve_image_mime(mime, raw)
+    if resolved is None:
+        raise ValueError("Use PNG, JPEG, GIF, or WebP")
+    if not store.save_kb_icon(key, resolved, raw):
+        raise LookupError("Unknown knowledge base")
+
+
+def clear_kb_icon(name: str, actor: dict[str, Any], store: AppStore) -> None:
+    key = safe_index_name(name)
+    _check_icon_write(actor, store, key)
+    if not store.clear_kb_icon(key):
+        raise LookupError("No icon")
+
+
+def get_webhook_secret(name: str, actor: dict[str, Any], store: AppStore) -> str:
+    key = safe_index_name(name)
+    kind = actor.get("kind")
+    uid = actor.get("user_id")
+    rec = store.get_kb_record_any_state(key)
+    if rec is None:
+        raise LookupError("Unknown knowledge base")
+    if kind == "superuser":
+        return str(rec.webhook_secret or "")
+    if kind != "user" or uid is None:
+        raise PermissionError("Login required")
+    if int(rec.owner_id) != int(uid):
+        raise PermissionError("Only owner can read webhook secret")
+    return str(rec.webhook_secret or "")
+
+
+def trigger_webhook_pull(name: str, owner_user_id: int, store: AppStore) -> dict[str, Any]:
+    from pathlib import Path as _Path
+
+    from server.build_queue import is_http_git_clone_url, wake_build_worker
+
+    key = safe_index_name(name)
+    rec = store.get_kb_record_any_state(key)
+    if rec is None:
+        raise LookupError("Unknown knowledge base")
+    if int(rec.owner_id) != owner_user_id:
+        raise PermissionError("Only the owner can trigger a manual pull")
+    prov = str(rec.webhook_provider or "").strip().lower()
+    if str(rec.source_type or "tar") != "webhook" or prov not in ("gitlab", "github"):
+        raise ValueError("Not a GitLab/GitHub webhook knowledge base")
+    repo_url = str(rec.webhook_repo_url or "").strip()
+    ref = str(rec.webhook_ref or "").strip()
+    if not repo_url:
+        raise ValueError(
+            "No repository URL stored yet; wait for a push webhook or set repo_url via PATCH"
+        )
+    if not is_http_git_clone_url(repo_url):
+        raise ValueError(
+            "Stored repo_url is not a valid http(s) address. Open manage and set repository URL to https://… (not the webhook secret)."
+        )
+    if not ref:
+        raise ValueError("Branch (ref) is not set; configure it in knowledge base settings before pulling.")
+    op = "update" if _Path(str(rec.db_path or "")).is_file() else "create"
+    job_id = secrets.token_hex(12)
+    payload = {
+        "description": str(rec.description or ""),
+        "readme_md": str(rec.readme_md or ""),
+        "is_public": bool(rec.is_public),
+        "icon": str(rec.icon or "book"),
+        "repo_url": repo_url,
+        "ref": ref,
+        "checkout_sha": "",
+    }
+    store.enqueue_build_job(
+        job_id=job_id,
+        user_id=int(rec.owner_id),
+        task_kind="webhook",
+        op=op,
+        kb_name=key,
+        upload_id=secrets.token_hex(12),
+        payload=payload,
+    )
+    wake_build_worker()
+    return {"job_id": job_id, "op": op}
+
+
+def _check_icon_write(actor: dict[str, Any], store: AppStore, key: str) -> None:
+    kind = actor.get("kind")
+    uid = actor.get("user_id")
+    if kind == "superuser":
+        return
+    if uid is None:
+        raise PermissionError("Login required")
+    perm = store.permission_for(int(uid), key)
+    if perm is None or not perm.can_write:
+        raise PermissionError("Forbidden")

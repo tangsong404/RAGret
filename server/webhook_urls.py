@@ -43,3 +43,17 @@ def webhook_url_for_kb(
             if p in ("gitlab", "github"):
                 prov = p
     return f"{proto}://{host}/api/webhooks/{prov}/{kb_name}"
+
+
+def webhook_base_urls(
+    settings: Settings | None = None,
+    *,
+    proto: str = "http",
+    port: int = 8765,
+) -> dict[str, str]:
+    settings = settings or Settings()
+    host = best_public_host(settings)
+    if port not in (80, 443):
+        host = f"{host}:{int(port)}"
+    base = f"{proto}://{host}/api/webhooks"
+    return {"gitlab": f"{base}/gitlab/", "github": f"{base}/github/"}
