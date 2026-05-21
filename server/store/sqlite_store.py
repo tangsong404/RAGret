@@ -3,12 +3,12 @@ from __future__ import annotations
 
 import json
 import sqlite3
-import threading
 import time
 from pathlib import Path
 from typing import Any
 
 from server.passwords import verify_password
+from server.store.pool import SqliteConnectionPool
 from server.store.protocol import KBPermission, KBRecord, UserRecord
 
 
@@ -85,65 +85,68 @@ CREATE INDEX IF NOT EXISTS idx_api_keys_user ON api_keys(user_id);
 
 
 class SqliteAppStore:
-    def __init__(self, db_path: Path) -> None:
-        self._path = db_path
-        self._lock = threading.Lock()
-        self._conn = _connect_rw(db_path)
-        self._conn.executescript(_INIT_SQL)
-        self._migrate_schema_unlocked()
-        self._conn.commit()
+    def __init__(self, pool_or_path: SqliteConnectionPool | Path) -> None:
+        if isinstance(pool_or_path, SqliteConnectionPool):
+            self._pool = pool_or_path
+            self._path = pool_or_path._path
+        else:
+            self._path = pool_or_path
+            self._pool = SqliteConnectionPool(pool_or_path)
+        with self._pool.acquire() as conn:
+            conn.executescript(_INIT_SQL)
+            self._migrate_schema(conn)
 
-    def _migrate_schema_unlocked(self) -> None:
-        cols = {str(r[1]) for r in self._conn.execute("PRAGMA table_info(users)").fetchall()}
+    def _migrate_schema(self, conn: sqlite3.Connection) -> None:
+        cols = {str(r[1]) for r in conn.execute("PRAGMA table_info(users)").fetchall()}
         if "avatar_mime" not in cols:
-            self._conn.execute("ALTER TABLE users ADD COLUMN avatar_mime TEXT")
+            conn.execute("ALTER TABLE users ADD COLUMN avatar_mime TEXT")
         if "gitlab_pat" not in cols:
-            self._conn.execute("ALTER TABLE users ADD COLUMN gitlab_pat TEXT NOT NULL DEFAULT ''")
+            conn.execute("ALTER TABLE users ADD COLUMN gitlab_pat TEXT NOT NULL DEFAULT ''")
         if "github_pat" not in cols:
-            self._conn.execute("ALTER TABLE users ADD COLUMN github_pat TEXT NOT NULL DEFAULT ''")
-        kb_cols = {str(r[1]) for r in self._conn.execute("PRAGMA table_info(knowledge_bases)").fetchall()}
+            conn.execute("ALTER TABLE users ADD COLUMN github_pat TEXT NOT NULL DEFAULT ''")
+        kb_cols = {str(r[1]) for r in conn.execute("PRAGMA table_info(knowledge_bases)").fetchall()}
         if "list_color_idx" not in kb_cols:
-            self._conn.execute(
+            conn.execute(
                 "ALTER TABLE knowledge_bases ADD COLUMN list_color_idx INTEGER NOT NULL DEFAULT 0"
             )
         if "is_public" not in kb_cols:
-            self._conn.execute(
+            conn.execute(
                 "ALTER TABLE knowledge_bases ADD COLUMN is_public INTEGER NOT NULL DEFAULT 0"
             )
         if "readme_md" not in kb_cols:
-            self._conn.execute(
+            conn.execute(
                 "ALTER TABLE knowledge_bases ADD COLUMN readme_md TEXT NOT NULL DEFAULT ''"
             )
         if "icon" not in kb_cols:
-            self._conn.execute(
+            conn.execute(
                 "ALTER TABLE knowledge_bases ADD COLUMN icon TEXT NOT NULL DEFAULT 'book'"
             )
         if "source_type" not in kb_cols:
-            self._conn.execute(
+            conn.execute(
                 "ALTER TABLE knowledge_bases ADD COLUMN source_type TEXT NOT NULL DEFAULT 'tar'"
             )
         if "webhook_provider" not in kb_cols:
-            self._conn.execute(
+            conn.execute(
                 "ALTER TABLE knowledge_bases ADD COLUMN webhook_provider TEXT NOT NULL DEFAULT ''"
             )
         if "webhook_secret" not in kb_cols:
-            self._conn.execute(
+            conn.execute(
                 "ALTER TABLE knowledge_bases ADD COLUMN webhook_secret TEXT NOT NULL DEFAULT ''"
             )
         if "webhook_repo_url" not in kb_cols:
-            self._conn.execute(
+            conn.execute(
                 "ALTER TABLE knowledge_bases ADD COLUMN webhook_repo_url TEXT NOT NULL DEFAULT ''"
             )
         if "webhook_ref" not in kb_cols:
-            self._conn.execute(
+            conn.execute(
                 "ALTER TABLE knowledge_bases ADD COLUMN webhook_ref TEXT NOT NULL DEFAULT ''"
             )
-        self._conn.execute("UPDATE kb_members SET can_read = 1, can_delete = 0")
-        subs = self._conn.execute(
+        conn.execute("UPDATE kb_members SET can_read = 1, can_delete = 0")
+        subs = conn.execute(
             "SELECT name FROM sqlite_master WHERE type='table' AND name='kb_subscriptions'"
         ).fetchone()
         if subs is None:
-            self._conn.executescript(
+            conn.executescript(
                 """
                 CREATE TABLE kb_subscriptions (
                     user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
@@ -154,11 +157,11 @@ class SqliteAppStore:
                 CREATE INDEX IF NOT EXISTS idx_kb_sub_kb ON kb_subscriptions(kb_id);
                 """
             )
-        api_key_tab = self._conn.execute(
+        api_key_tab = conn.execute(
             "SELECT name FROM sqlite_master WHERE type='table' AND name='api_keys'"
         ).fetchone()
         if api_key_tab is None:
-            self._conn.executescript(
+            conn.executescript(
                 """
                 CREATE TABLE api_keys (
                     id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -170,11 +173,11 @@ class SqliteAppStore:
                 CREATE INDEX IF NOT EXISTS idx_api_keys_user ON api_keys(user_id);
                 """
             )
-        bj = self._conn.execute(
+        bj = conn.execute(
             "SELECT name FROM sqlite_master WHERE type='table' AND name='build_jobs'"
         ).fetchone()
         if bj is None:
-            self._conn.executescript(
+            conn.executescript(
                 """
                 CREATE TABLE build_jobs (
                     job_id TEXT PRIMARY KEY,
@@ -200,14 +203,14 @@ class SqliteAppStore:
                 """
             )
         if "kb_ready" not in kb_cols:
-            self._conn.execute(
+            conn.execute(
                 "ALTER TABLE knowledge_bases ADD COLUMN kb_ready INTEGER NOT NULL DEFAULT 1"
             )
-        self._conn.execute(
+        conn.execute(
             "UPDATE build_jobs SET status = 'queued', started_at = NULL "
             "WHERE status = 'running'"
         )
-        self._conn.execute(
+        conn.execute(
             "DELETE FROM build_jobs WHERE status IN ('done', 'error', 'cancelled')"
         )
 
@@ -234,33 +237,30 @@ class SqliteAppStore:
         return self._kb_icon_dir() / str(int(kb_id))
 
     def close(self) -> None:
-        with self._lock:
-            self._conn.close()
+        self._pool.close()
 
     def _now(self) -> float:
         return time.time()
 
-    def _purge_expired_sessions_unlocked(self) -> None:
-        self._conn.execute("DELETE FROM sessions WHERE expires_at < ?", (self._now(),))
+    def _purge_expired_sessions(self, conn: sqlite3.Connection) -> None:
+        conn.execute("DELETE FROM sessions WHERE expires_at < ?", (self._now(),))
 
     def create_user(self, username: str, password_hash: str) -> UserRecord:
         t = self._now()
-        with self._lock:
+        with self._pool.acquire() as conn:
             try:
-                cur = self._conn.execute(
+                cur = conn.execute(
                     "INSERT INTO users(username, password_hash, created_at) VALUES(?,?,?)",
                     (username.strip(), password_hash, t),
                 )
-                self._conn.commit()
                 uid = int(cur.lastrowid)
             except sqlite3.IntegrityError as e:
-                self._conn.rollback()
                 raise ValueError("Username already taken") from e
         return UserRecord(id=uid, username=username.strip())
 
     def get_user_by_username(self, username: str) -> UserRecord | None:
-        with self._lock:
-            row = self._conn.execute(
+        with self._pool.acquire() as conn:
+            row = conn.execute(
                 "SELECT id, username FROM users WHERE username = ? COLLATE NOCASE",
                 (username.strip(),),
             ).fetchone()
@@ -269,8 +269,8 @@ class SqliteAppStore:
         return UserRecord(id=int(row["id"]), username=str(row["username"]))
 
     def get_user_by_id(self, user_id: int) -> UserRecord | None:
-        with self._lock:
-            row = self._conn.execute(
+        with self._pool.acquire() as conn:
+            row = conn.execute(
                 "SELECT id, username FROM users WHERE id = ?",
                 (int(user_id),),
             ).fetchone()
@@ -279,8 +279,8 @@ class SqliteAppStore:
         return UserRecord(id=int(row["id"]), username=str(row["username"]))
 
     def verify_user_password(self, username: str, password: str) -> UserRecord | None:
-        with self._lock:
-            row = self._conn.execute(
+        with self._pool.acquire() as conn:
+            row = conn.execute(
                 "SELECT id, username, password_hash FROM users WHERE username = ? COLLATE NOCASE",
                 (username.strip(),),
             ).fetchone()
@@ -296,21 +296,20 @@ class SqliteAppStore:
         token = secrets.token_urlsafe(32)
         t = self._now()
         exp = t + float(ttl_seconds)
-        with self._lock:
-            self._purge_expired_sessions_unlocked()
-            self._conn.execute(
+        with self._pool.acquire() as conn:
+            self._purge_expired_sessions(conn)
+            conn.execute(
                 "INSERT INTO sessions(token, user_id, created_at, expires_at) VALUES(?,?,?,?)",
                 (token, int(user_id), t, exp),
             )
-            self._conn.commit()
         return token
 
     def get_session_user_id(self, token: str) -> int | None:
         if not token:
             return None
-        with self._lock:
-            self._purge_expired_sessions_unlocked()
-            row = self._conn.execute(
+        with self._pool.acquire() as conn:
+            self._purge_expired_sessions(conn)
+            row = conn.execute(
                 "SELECT user_id FROM sessions WHERE token = ? AND expires_at >= ?",
                 (token, self._now()),
             ).fetchone()
@@ -319,13 +318,12 @@ class SqliteAppStore:
         return int(row["user_id"])
 
     def delete_session(self, token: str) -> None:
-        with self._lock:
-            self._conn.execute("DELETE FROM sessions WHERE token = ?", (token,))
-            self._conn.commit()
+        with self._pool.acquire() as conn:
+            conn.execute("DELETE FROM sessions WHERE token = ?", (token,))
 
     def change_password(self, user_id: int, current_password: str, new_password_hash: str) -> bool:
-        with self._lock:
-            row = self._conn.execute(
+        with self._pool.acquire() as conn:
+            row = conn.execute(
                 "SELECT password_hash FROM users WHERE id = ?",
                 (int(user_id),),
             ).fetchone()
@@ -333,15 +331,14 @@ class SqliteAppStore:
                 return False
             if not verify_password(current_password, str(row["password_hash"] or "")):
                 return False
-            self._conn.execute(
+            conn.execute(
                 "UPDATE users SET password_hash = ? WHERE id = ?",
                 (new_password_hash, int(user_id)),
             )
-            self._conn.commit()
         return True
 
-    def _user_has_avatar_unlocked(self, user_id: int) -> bool:
-        row = self._conn.execute(
+    def _user_has_avatar(self, conn: sqlite3.Connection, user_id: int) -> bool:
+        row = conn.execute(
             "SELECT avatar_mime FROM users WHERE id = ?",
             (int(user_id),),
         ).fetchone()
@@ -350,23 +347,22 @@ class SqliteAppStore:
         return self._avatar_file(user_id).is_file()
 
     def user_has_avatar(self, user_id: int) -> bool:
-        with self._lock:
-            return self._user_has_avatar_unlocked(user_id)
+        with self._pool.acquire() as conn:
+            return self._user_has_avatar(conn, user_id)
 
     def save_avatar(self, user_id: int, mime: str, body: bytes) -> None:
         path = self._avatar_file(user_id)
-        with self._lock:
+        with self._pool.acquire() as conn:
             path.parent.mkdir(parents=True, exist_ok=True)
             path.write_bytes(body)
-            self._conn.execute(
+            conn.execute(
                 "UPDATE users SET avatar_mime = ? WHERE id = ?",
                 (mime, int(user_id)),
             )
-            self._conn.commit()
 
     def load_avatar(self, user_id: int) -> tuple[str, bytes] | None:
-        with self._lock:
-            row = self._conn.execute(
+        with self._pool.acquire() as conn:
+            row = conn.execute(
                 "SELECT avatar_mime FROM users WHERE id = ?",
                 (int(user_id),),
             ).fetchone()
@@ -383,12 +379,11 @@ class SqliteAppStore:
 
     def clear_avatar(self, user_id: int) -> None:
         path = self._avatar_file(user_id)
-        with self._lock:
-            self._conn.execute(
+        with self._pool.acquire() as conn:
+            conn.execute(
                 "UPDATE users SET avatar_mime = NULL WHERE id = ?",
                 (int(user_id),),
             )
-            self._conn.commit()
         try:
             if path.is_file():
                 path.unlink()
@@ -397,16 +392,15 @@ class SqliteAppStore:
 
     def set_user_gitlab_pat(self, user_id: int, pat: str) -> None:
         token = str(pat or "").strip()
-        with self._lock:
-            self._conn.execute(
+        with self._pool.acquire() as conn:
+            conn.execute(
                 "UPDATE users SET gitlab_pat = ? WHERE id = ?",
                 (token, int(user_id)),
             )
-            self._conn.commit()
 
     def get_user_gitlab_pat(self, user_id: int) -> str:
-        with self._lock:
-            row = self._conn.execute(
+        with self._pool.acquire() as conn:
+            row = conn.execute(
                 "SELECT gitlab_pat FROM users WHERE id = ?",
                 (int(user_id),),
             ).fetchone()
@@ -416,16 +410,15 @@ class SqliteAppStore:
 
     def set_user_github_pat(self, user_id: int, pat: str) -> None:
         token = str(pat or "").strip()
-        with self._lock:
-            self._conn.execute(
+        with self._pool.acquire() as conn:
+            conn.execute(
                 "UPDATE users SET github_pat = ? WHERE id = ?",
                 (token, int(user_id)),
             )
-            self._conn.commit()
 
     def get_user_github_pat(self, user_id: int) -> str:
-        with self._lock:
-            row = self._conn.execute(
+        with self._pool.acquire() as conn:
+            row = conn.execute(
                 "SELECT github_pat FROM users WHERE id = ?",
                 (int(user_id),),
             ).fetchone()
@@ -433,8 +426,8 @@ class SqliteAppStore:
             return ""
         return str(row["github_pat"] or "").strip()
 
-    def _kb_row_by_name(self, name: str) -> sqlite3.Row | None:
-        return self._conn.execute(
+    def _kb_row_by_name(self, conn: sqlite3.Connection, name: str) -> sqlite3.Row | None:
+        return conn.execute(
             """
             SELECT kb.*, u.username AS owner_username
             FROM knowledge_bases kb
@@ -444,8 +437,8 @@ class SqliteAppStore:
             (name,),
         ).fetchone()
 
-    def _pick_least_used_list_color_unlocked(self) -> int:
-        rows = self._conn.execute(
+    def _pick_least_used_list_color(self, conn: sqlite3.Connection) -> int:
+        rows = conn.execute(
             """
             SELECT COALESCE(list_color_idx, 0) AS cidx, COUNT(*) AS c
             FROM knowledge_bases
@@ -460,17 +453,17 @@ class SqliteAppStore:
             counts[idx] = int(r["c"])
         return min(range(5), key=lambda i: counts[i])
 
-    def _kb_is_public_unlocked(self, kb: sqlite3.Row) -> bool:
+    def _kb_is_public(self, kb: sqlite3.Row) -> bool:
         try:
             return bool(int(kb["is_public"] or 0))
         except (KeyError, TypeError, ValueError):
             return False
 
-    def _permission_unlocked(self, user_id: int, kb: sqlite3.Row) -> KBPermission | None:
+    def _permission(self, conn: sqlite3.Connection, user_id: int, kb: sqlite3.Row) -> KBPermission | None:
         oid = int(kb["owner_id"])
         if user_id == oid:
             return KBPermission(can_read=True, can_write=True, can_delete=True, is_owner=True)
-        m = self._conn.execute(
+        m = conn.execute(
             """
             SELECT can_read, can_write, can_delete FROM kb_members
             WHERE kb_id = ? AND user_id = ?
@@ -485,11 +478,11 @@ class SqliteAppStore:
                 can_delete=False,
                 is_owner=False,
             )
-        if self._kb_is_public_unlocked(kb):
+        if self._kb_is_public(kb):
             return KBPermission(can_read=True, can_write=False, can_delete=False, is_owner=False)
         return None
 
-    def _row_to_record(self, kb: sqlite3.Row, perm: KBPermission) -> KBRecord:
+    def _row_to_record(self, conn: sqlite3.Connection, kb: sqlite3.Row, perm: KBPermission) -> KBRecord:
         oid = int(kb["owner_id"])
         try:
             lc = int(kb["list_color_idx"])
@@ -502,8 +495,8 @@ class SqliteAppStore:
                 ou = str(kb["owner_username"])
         except (KeyError, TypeError):
             ou = ""
-        o_has = self._user_has_avatar_unlocked(oid)
-        pub = self._kb_is_public_unlocked(kb)
+        o_has = self._user_has_avatar(conn, oid)
+        pub = self._kb_is_public(kb)
         try:
             wru = str(kb["webhook_repo_url"] or "")
         except (KeyError, TypeError, ValueError):
@@ -558,10 +551,10 @@ class SqliteAppStore:
         secret = str(webhook_secret or "").strip()
         wru = str(webhook_repo_url or "").strip()
         wrf = str(webhook_ref or "").strip()
-        with self._lock:
+        with self._pool.acquire() as conn:
             try:
-                color = self._pick_least_used_list_color_unlocked()
-                cur = self._conn.execute(
+                color = self._pick_least_used_list_color(conn)
+                cur = conn.execute(
                     """
                     INSERT INTO knowledge_bases(
                         name, description, readme_md, db_path, owner_id, created_at, list_color_idx, is_public, icon,
@@ -586,12 +579,10 @@ class SqliteAppStore:
                         wrf,
                     ),
                 )
-                self._conn.commit()
                 kb_id = int(cur.lastrowid)
             except sqlite3.IntegrityError as e:
-                self._conn.rollback()
                 raise ValueError("Knowledge base name already exists") from e
-            kb = self._conn.execute(
+            kb = conn.execute(
                 """
                 SELECT kb.*, u.username AS owner_username
                 FROM knowledge_bases kb
@@ -602,21 +593,21 @@ class SqliteAppStore:
             ).fetchone()
         assert kb is not None
         perm = KBPermission(can_read=True, can_write=True, can_delete=True, is_owner=True)
-        return self._row_to_record(kb, perm)
+        return self._row_to_record(conn, kb, perm)
 
     def get_knowledge_base(self, name: str) -> KBRecord | None:
-        with self._lock:
-            kb = self._kb_row_by_name(name)
+        with self._pool.acquire() as conn:
+            kb = self._kb_row_by_name(conn, name)
             if kb is None:
                 return None
             if not self._kb_ready_from_row(kb):
                 return None
             perm = KBPermission(can_read=True, can_write=True, can_delete=True, is_owner=True)
-            return self._row_to_record(kb, perm)
+            return self._row_to_record(conn, kb, perm)
 
     def resolve_kb_db_path(self, name: str) -> str | None:
-        with self._lock:
-            kb = self._kb_row_by_name(name)
+        with self._pool.acquire() as conn:
+            kb = self._kb_row_by_name(conn, name)
             if kb is None:
                 return None
             if not self._kb_ready_from_row(kb):
@@ -624,8 +615,8 @@ class SqliteAppStore:
             return str(kb["db_path"])
 
     def all_kb_db_paths(self) -> list[Path]:
-        with self._lock:
-            rows = self._conn.execute(
+        with self._pool.acquire() as conn:
+            rows = conn.execute(
                 "SELECT db_path FROM knowledge_bases WHERE TRIM(COALESCE(db_path, '')) != ''",
             ).fetchall()
         out: list[Path] = []
@@ -637,94 +628,88 @@ class SqliteAppStore:
         return out
 
     def delete_knowledge_base(self, name: str) -> bool:
-        with self._lock:
-            kb = self._kb_row_by_name(name)
+        with self._pool.acquire() as conn:
+            kb = self._kb_row_by_name(conn, name)
             if kb is None:
                 return False
-            self._conn.execute("DELETE FROM knowledge_bases WHERE id = ?", (int(kb["id"]),))
-            self._conn.commit()
+            conn.execute("DELETE FROM knowledge_bases WHERE id = ?", (int(kb["id"]),))
         return True
 
     def update_knowledge_base_description(self, name: str, description: str) -> bool:
         desc = str(description).strip()
-        with self._lock:
-            kb = self._kb_row_by_name(name)
+        with self._pool.acquire() as conn:
+            kb = self._kb_row_by_name(conn, name)
             if kb is None:
                 return False
             if not self._kb_ready_from_row(kb):
                 return False
-            self._conn.execute(
+            conn.execute(
                 "UPDATE knowledge_bases SET description = ? WHERE id = ?",
                 (desc, int(kb["id"])),
             )
-            self._conn.commit()
         return True
 
     def update_knowledge_base_readme(self, name: str, readme_md: str) -> bool:
         text = str(readme_md or "").strip()
-        with self._lock:
-            kb = self._kb_row_by_name(name)
+        with self._pool.acquire() as conn:
+            kb = self._kb_row_by_name(conn, name)
             if kb is None:
                 return False
             if not self._kb_ready_from_row(kb):
                 return False
-            self._conn.execute(
+            conn.execute(
                 "UPDATE knowledge_bases SET readme_md = ? WHERE id = ?",
                 (text, int(kb["id"])),
             )
-            self._conn.commit()
         return True
 
     def update_knowledge_base_public(self, name: str, is_public: bool) -> bool:
         pub_i = 1 if is_public else 0
-        with self._lock:
-            kb = self._kb_row_by_name(name)
+        with self._pool.acquire() as conn:
+            kb = self._kb_row_by_name(conn, name)
             if kb is None:
                 return False
             if not self._kb_ready_from_row(kb):
                 return False
-            self._conn.execute(
+            conn.execute(
                 "UPDATE knowledge_bases SET is_public = ? WHERE id = ?",
                 (pub_i, int(kb["id"])),
             )
-            self._conn.commit()
         return True
 
     def update_knowledge_base_icon(self, name: str, icon: str) -> bool:
         icon_key = str(icon or "book").strip() or "book"
-        with self._lock:
-            kb = self._kb_row_by_name(name)
+        with self._pool.acquire() as conn:
+            kb = self._kb_row_by_name(conn, name)
             if kb is None:
                 return False
             if not self._kb_ready_from_row(kb):
                 return False
-            self._conn.execute(
+            conn.execute(
                 "UPDATE knowledge_bases SET icon = ? WHERE id = ?",
                 (icon_key, int(kb["id"])),
             )
-            self._conn.commit()
         return True
 
     def update_knowledge_base_webhook_secret(self, name: str, secret: str) -> bool:
         tok = str(secret or "").strip()
-        with self._lock:
-            kb = self._kb_row_by_name(name)
+        with self._pool.acquire() as conn:
+            kb = self._kb_row_by_name(conn, name)
             if kb is None:
                 return False
             if not self._kb_ready_from_row(kb):
                 return False
-            self._conn.execute(
+            conn.execute(
                 "UPDATE knowledge_bases SET webhook_secret = ? WHERE id = ?",
                 (tok, int(kb["id"])),
             )
-            self._conn.commit()
         return True
 
     def update_knowledge_base_webhook_source(
         self, name: str, *, repo_url: str | None = None, ref: str | None = None
     ) -> bool:
-        with self._lock:
-            kb = self._kb_row_by_name(name)
+        with self._pool.acquire() as conn:
+            kb = self._kb_row_by_name(conn, name)
             if kb is None:
                 return False
             try:
@@ -737,16 +722,15 @@ class SqliteAppStore:
                 cur_rf = ""
             new_ru = str(repo_url).strip() if repo_url is not None else cur_ru
             new_rf = str(ref).strip() if ref is not None else cur_rf
-            self._conn.execute(
+            conn.execute(
                 "UPDATE knowledge_bases SET webhook_repo_url = ?, webhook_ref = ? WHERE id = ?",
                 (new_ru, new_rf, int(kb["id"])),
             )
-            self._conn.commit()
         return True
 
     def save_kb_icon(self, kb_name: str, mime: str, body: bytes) -> bool:
-        with self._lock:
-            kb = self._kb_row_by_name(kb_name)
+        with self._pool.acquire() as conn:
+            kb = self._kb_row_by_name(conn, kb_name)
             if kb is None:
                 return False
             if not self._kb_ready_from_row(kb):
@@ -754,16 +738,15 @@ class SqliteAppStore:
             kid = int(kb["id"])
             path = self._kb_icon_file(kid)
             path.write_bytes(body)
-            self._conn.execute(
+            conn.execute(
                 "UPDATE knowledge_bases SET icon = ? WHERE id = ?",
                 (str(mime or "").strip(), kid),
             )
-            self._conn.commit()
         return True
 
     def load_kb_icon(self, kb_name: str) -> tuple[str, bytes] | None:
-        with self._lock:
-            kb = self._kb_row_by_name(kb_name)
+        with self._pool.acquire() as conn:
+            kb = self._kb_row_by_name(conn, kb_name)
             if kb is None:
                 return None
             if not self._kb_ready_from_row(kb):
@@ -779,8 +762,8 @@ class SqliteAppStore:
         return mime, data
 
     def clear_kb_icon(self, kb_name: str) -> bool:
-        with self._lock:
-            kb = self._kb_row_by_name(kb_name)
+        with self._pool.acquire() as conn:
+            kb = self._kb_row_by_name(conn, kb_name)
             if kb is None:
                 return False
             if not self._kb_ready_from_row(kb):
@@ -792,11 +775,10 @@ class SqliteAppStore:
                     path.unlink()
             except OSError:
                 pass
-            self._conn.execute(
+            conn.execute(
                 "UPDATE knowledge_bases SET icon = ? WHERE id = ?",
                 ("book", kid),
             )
-            self._conn.commit()
         return True
 
     def rename_knowledge_base(self, old_name: str, new_name: str) -> bool:
@@ -804,27 +786,25 @@ class SqliteAppStore:
         new_key = str(new_name).strip()
         if not old_key or not new_key:
             return False
-        with self._lock:
-            kb = self._kb_row_by_name(old_key)
+        with self._pool.acquire() as conn:
+            kb = self._kb_row_by_name(conn, old_key)
             if kb is None:
                 return False
             if not self._kb_ready_from_row(kb):
                 return False
             try:
-                self._conn.execute(
+                conn.execute(
                     "UPDATE knowledge_bases SET name = ? WHERE id = ?",
                     (new_key, int(kb["id"])),
                 )
-                self._conn.commit()
             except sqlite3.IntegrityError as e:
-                self._conn.rollback()
                 raise ValueError("Knowledge base name already exists") from e
         return True
 
     def list_knowledge_bases_for_user(self, user_id: int) -> list[KBRecord]:
         out: list[KBRecord] = []
-        with self._lock:
-            rows = self._conn.execute(
+        with self._pool.acquire() as conn:
+            rows = conn.execute(
                 """
                 SELECT kb.*, u.username AS owner_username
                 FROM knowledge_bases kb
@@ -834,16 +814,16 @@ class SqliteAppStore:
                 """
             ).fetchall()
             for kb in rows:
-                perm = self._permission_unlocked(int(user_id), kb)
+                perm = self._permission(conn, int(user_id), kb)
                 if perm is None or not perm.can_read:
                     continue
-                out.append(self._row_to_record(kb, perm))
+                out.append(self._row_to_record(conn, kb, perm))
         return out
 
     def list_all_knowledge_bases(self) -> list[KBRecord]:
         out: list[KBRecord] = []
-        with self._lock:
-            rows = self._conn.execute(
+        with self._pool.acquire() as conn:
+            rows = conn.execute(
                 """
                 SELECT kb.*, u.username AS owner_username
                 FROM knowledge_bases kb
@@ -854,30 +834,30 @@ class SqliteAppStore:
             ).fetchall()
             for kb in rows:
                 perm = KBPermission(can_read=True, can_write=True, can_delete=True, is_owner=True)
-                out.append(self._row_to_record(kb, perm))
+                out.append(self._row_to_record(conn, kb, perm))
         return out
 
     def permission_for(self, user_id: int, kb_name: str) -> KBPermission | None:
-        with self._lock:
-            kb = self._kb_row_by_name(kb_name)
+        with self._pool.acquire() as conn:
+            kb = self._kb_row_by_name(conn, kb_name)
             if kb is None:
                 return None
             if not self._kb_ready_from_row(kb):
                 return None
-            return self._permission_unlocked(int(user_id), kb)
+            return self._permission(conn, int(user_id), kb)
 
     def list_members_roster(self, kb_name: str) -> list[dict] | None:
-        with self._lock:
-            kb = self._kb_row_by_name(kb_name)
+        with self._pool.acquire() as conn:
+            kb = self._kb_row_by_name(conn, kb_name)
             if kb is None:
                 return None
             if not self._kb_ready_from_row(kb):
                 return None
-            owner = self._conn.execute(
+            owner = conn.execute(
                 "SELECT username FROM users WHERE id = ?",
                 (int(kb["owner_id"]),),
             ).fetchone()
-            members = self._conn.execute(
+            members = conn.execute(
                 """
                 SELECT u.username, m.can_read, m.can_write, m.can_delete
                 FROM kb_members m
@@ -910,21 +890,21 @@ class SqliteAppStore:
         return result
 
     def kb_subscription_get(self, user_id: int, kb_name: str) -> bool:
-        with self._lock:
-            kb = self._kb_row_by_name(kb_name)
+        with self._pool.acquire() as conn:
+            kb = self._kb_row_by_name(conn, kb_name)
             if kb is None:
                 return False
             if not self._kb_ready_from_row(kb):
                 return False
-            row = self._conn.execute(
+            row = conn.execute(
                 "SELECT 1 FROM kb_subscriptions WHERE user_id = ? AND kb_id = ? LIMIT 1",
                 (int(user_id), int(kb["id"])),
             ).fetchone()
             return row is not None
 
     def kb_subscription_set(self, user_id: int, kb_name: str, subscribed: bool) -> bool:
-        with self._lock:
-            kb = self._kb_row_by_name(kb_name)
+        with self._pool.acquire() as conn:
+            kb = self._kb_row_by_name(conn, kb_name)
             if kb is None:
                 return False
             if not self._kb_ready_from_row(kb):
@@ -932,22 +912,21 @@ class SqliteAppStore:
             uid = int(user_id)
             kid = int(kb["id"])
             if subscribed:
-                self._conn.execute(
+                conn.execute(
                     "INSERT OR REPLACE INTO kb_subscriptions(user_id, kb_id, created_at) VALUES (?,?,?)",
                     (uid, kid, self._now()),
                 )
             else:
-                self._conn.execute(
+                conn.execute(
                     "DELETE FROM kb_subscriptions WHERE user_id = ? AND kb_id = ?",
                     (uid, kid),
                 )
-            self._conn.commit()
         return True
 
     def list_subscribed_knowledge_bases_for_user(self, user_id: int) -> list[KBRecord]:
         out: list[KBRecord] = []
-        with self._lock:
-            rows = self._conn.execute(
+        with self._pool.acquire() as conn:
+            rows = conn.execute(
                 """
                 SELECT kb.*, u.username AS owner_username
                 FROM kb_subscriptions s
@@ -959,16 +938,16 @@ class SqliteAppStore:
                 (int(user_id),),
             ).fetchall()
             for kb in rows:
-                perm = self._permission_unlocked(int(user_id), kb)
+                perm = self._permission(conn, int(user_id), kb)
                 if perm is None or not perm.can_read:
                     continue
-                out.append(self._row_to_record(kb, perm))
+                out.append(self._row_to_record(conn, kb, perm))
         return out
 
     def list_owned_and_subscribed_knowledge_bases_for_user(self, user_id: int) -> list[KBRecord]:
         out: list[KBRecord] = []
-        with self._lock:
-            rows = self._conn.execute(
+        with self._pool.acquire() as conn:
+            rows = conn.execute(
                 """
                 SELECT DISTINCT kb.*, u.username AS owner_username
                 FROM knowledge_bases kb
@@ -981,18 +960,18 @@ class SqliteAppStore:
                 (int(user_id), int(user_id)),
             ).fetchall()
             for kb in rows:
-                perm = self._permission_unlocked(int(user_id), kb)
+                perm = self._permission(conn, int(user_id), kb)
                 if perm is None or not perm.can_read:
                     continue
-                out.append(self._row_to_record(kb, perm))
+                out.append(self._row_to_record(conn, kb, perm))
         return out
 
     def get_api_key_owner_user_id(self, key_value: str) -> int | None:
         kv = str(key_value or "").strip()
         if not kv:
             return None
-        with self._lock:
-            row = self._conn.execute(
+        with self._pool.acquire() as conn:
+            row = conn.execute(
                 "SELECT user_id FROM api_keys WHERE key_value = ? LIMIT 1",
                 (kv,),
             ).fetchone()
@@ -1001,8 +980,8 @@ class SqliteAppStore:
         return int(row["user_id"])
 
     def list_api_keys_for_user(self, user_id: int) -> list[dict]:
-        with self._lock:
-            rows = self._conn.execute(
+        with self._pool.acquire() as conn:
+            rows = conn.execute(
                 """
                 SELECT id, name, key_value, created_at
                 FROM api_keys
@@ -1026,8 +1005,8 @@ class SqliteAppStore:
     def create_api_key_for_user(self, user_id: int, *, name: str, key_value: str) -> dict | None:
         nm = str(name or "").strip()
         kv = str(key_value or "").strip()
-        with self._lock:
-            cnt = self._conn.execute(
+        with self._pool.acquire() as conn:
+            cnt = conn.execute(
                 "SELECT COUNT(*) AS c FROM api_keys WHERE user_id = ?",
                 (int(user_id),),
             ).fetchone()
@@ -1035,7 +1014,7 @@ class SqliteAppStore:
             if c >= 3:
                 return None
             if not nm:
-                rows = self._conn.execute(
+                rows = conn.execute(
                     "SELECT name FROM api_keys WHERE user_id = ?",
                     (int(user_id),),
                 ).fetchall()
@@ -1050,13 +1029,12 @@ class SqliteAppStore:
                         continue
                     mx = max(mx, n)
                 nm = f"apikey-{mx + 1}"
-            cur = self._conn.execute(
+            cur = conn.execute(
                 "INSERT INTO api_keys(user_id, name, key_value, created_at) VALUES(?,?,?,?)",
                 (int(user_id), nm, kv, self._now()),
             )
             kid = int(cur.lastrowid)
-            self._conn.commit()
-            row = self._conn.execute(
+            row = conn.execute(
                 "SELECT id, name, key_value, created_at FROM api_keys WHERE id = ?",
                 (kid,),
             ).fetchone()
@@ -1070,13 +1048,12 @@ class SqliteAppStore:
         }
 
     def delete_api_key_for_user(self, user_id: int, key_id: int) -> bool:
-        with self._lock:
-            cur = self._conn.execute(
+        with self._pool.acquire() as conn:
+            cur = conn.execute(
                 "DELETE FROM api_keys WHERE user_id = ? AND id = ?",
                 (int(user_id), int(key_id)),
             )
             n = int(cur.rowcount or 0)
-            self._conn.commit()
         return n > 0
 
     def upsert_member(
@@ -1090,15 +1067,15 @@ class SqliteAppStore:
         can_delete: bool,
     ) -> bool:
         uname = member_username.strip()
-        with self._lock:
-            kb = self._kb_row_by_name(kb_name)
+        with self._pool.acquire() as conn:
+            kb = self._kb_row_by_name(conn, kb_name)
             if kb is None:
                 return False
             if not self._kb_ready_from_row(kb):
                 return False
             if int(kb["owner_id"]) != int(actor_user_id):
                 return False
-            target = self._conn.execute(
+            target = conn.execute(
                 "SELECT id FROM users WHERE username = ? COLLATE NOCASE",
                 (uname,),
             ).fetchone()
@@ -1109,7 +1086,7 @@ class SqliteAppStore:
                 return False
             can_read = True
             can_delete = False
-            self._conn.execute(
+            conn.execute(
                 """
                 INSERT INTO kb_members(kb_id, user_id, can_read, can_write, can_delete)
                 VALUES(?,?,?,?,?)
@@ -1126,20 +1103,19 @@ class SqliteAppStore:
                     1 if can_delete else 0,
                 ),
             )
-            self._conn.commit()
         return True
 
     def remove_member(self, kb_name: str, *, actor_user_id: int, member_username: str) -> bool:
         uname = member_username.strip()
-        with self._lock:
-            kb = self._kb_row_by_name(kb_name)
+        with self._pool.acquire() as conn:
+            kb = self._kb_row_by_name(conn, kb_name)
             if kb is None:
                 return False
             if not self._kb_ready_from_row(kb):
                 return False
             if int(kb["owner_id"]) != int(actor_user_id):
                 return False
-            target = self._conn.execute(
+            target = conn.execute(
                 "SELECT id FROM users WHERE username = ? COLLATE NOCASE",
                 (uname,),
             ).fetchone()
@@ -1148,17 +1124,16 @@ class SqliteAppStore:
             tid = int(target["id"])
             if tid == int(kb["owner_id"]):
                 return False
-            cur = self._conn.execute(
+            cur = conn.execute(
                 "DELETE FROM kb_members WHERE kb_id = ? AND user_id = ?",
                 (int(kb["id"]), tid),
             )
             n = cur.rowcount
-            self._conn.commit()
         return n > 0
 
     def knowledge_base_name_taken(self, name: str) -> bool:
-        with self._lock:
-            row = self._conn.execute(
+        with self._pool.acquire() as conn:
+            row = conn.execute(
                 "SELECT 1 FROM knowledge_bases WHERE name = ? COLLATE NOCASE LIMIT 1",
                 (str(name).strip(),),
             ).fetchone()
@@ -1190,9 +1165,9 @@ class SqliteAppStore:
         secret = str(webhook_secret or "").strip()
         wru = str(webhook_repo_url or "").strip()
         wrf = str(webhook_ref or "").strip()
-        with self._lock:
-            color = self._pick_least_used_list_color_unlocked()
-            self._conn.execute(
+        with self._pool.acquire() as conn:
+            color = self._pick_least_used_list_color(conn)
+            conn.execute(
                 """
                 INSERT INTO knowledge_bases(
                     name, description, readme_md, db_path, owner_id, created_at,
@@ -1218,28 +1193,26 @@ class SqliteAppStore:
                     wrf,
                 ),
             )
-            self._conn.commit()
 
     def get_kb_record_any_state(self, name: str) -> KBRecord | None:
-        with self._lock:
-            kb = self._kb_row_by_name(name)
+        with self._pool.acquire() as conn:
+            kb = self._kb_row_by_name(conn, name)
             if kb is None:
                 return None
             perm = KBPermission(can_read=True, can_write=True, can_delete=True, is_owner=True)
-            return self._row_to_record(kb, perm)
+            return self._row_to_record(conn, kb, perm)
 
     def finalize_knowledge_base_ready(self, name: str) -> bool:
-        with self._lock:
-            cur = self._conn.execute(
+        with self._pool.acquire() as conn:
+            cur = conn.execute(
                 "UPDATE knowledge_bases SET kb_ready = 1 WHERE name = ? COLLATE NOCASE",
                 (str(name).strip(),),
             )
-            self._conn.commit()
         return int(cur.rowcount or 0) > 0
 
     def count_user_upload_tasks_active(self, user_id: int) -> int:
-        with self._lock:
-            row = self._conn.execute(
+        with self._pool.acquire() as conn:
+            row = conn.execute(
                 """
                 SELECT COUNT(*) AS c FROM build_jobs
                 WHERE user_id = ? AND task_kind = 'upload'
@@ -1262,8 +1235,8 @@ class SqliteAppStore:
     ) -> None:
         t = self._now()
         payload_json = json.dumps(payload, ensure_ascii=False)
-        with self._lock:
-            self._conn.execute(
+        with self._pool.acquire() as conn:
+            conn.execute(
                 """
                 INSERT INTO build_jobs(
                     job_id, user_id, task_kind, op, kb_name, status,
@@ -1283,7 +1256,6 @@ class SqliteAppStore:
                     payload_json,
                 ),
             )
-            self._conn.commit()
 
     def _build_job_row_to_dict(self, row: sqlite3.Row) -> dict[str, Any]:
         result = None
@@ -1313,8 +1285,8 @@ class SqliteAppStore:
         }
 
     def get_build_job(self, job_id: str) -> dict[str, Any] | None:
-        with self._lock:
-            row = self._conn.execute(
+        with self._pool.acquire() as conn:
+            row = conn.execute(
                 "SELECT * FROM build_jobs WHERE job_id = ?",
                 (str(job_id).strip(),),
             ).fetchone()
@@ -1323,8 +1295,8 @@ class SqliteAppStore:
         return self._build_job_row_to_dict(row)
 
     def build_job_cancel_requested(self, job_id: str) -> bool:
-        with self._lock:
-            row = self._conn.execute(
+        with self._pool.acquire() as conn:
+            row = conn.execute(
                 "SELECT cancel_requested FROM build_jobs WHERE job_id = ?",
                 (str(job_id).strip(),),
             ).fetchone()
@@ -1332,8 +1304,8 @@ class SqliteAppStore:
 
     def list_build_jobs_for_user(self, user_id: int, *, limit: int = 200) -> list[dict[str, Any]]:
         lim = max(1, min(500, int(limit)))
-        with self._lock:
-            rows = self._conn.execute(
+        with self._pool.acquire() as conn:
+            rows = conn.execute(
                 """
                 SELECT * FROM build_jobs
                 WHERE user_id = ? AND status IN ('queued', 'running')
@@ -1346,9 +1318,8 @@ class SqliteAppStore:
 
     def delete_build_job(self, job_id: str) -> bool:
         jid = str(job_id).strip()
-        with self._lock:
-            cur = self._conn.execute("DELETE FROM build_jobs WHERE job_id = ?", (jid,))
-            self._conn.commit()
+        with self._pool.acquire() as conn:
+            cur = conn.execute("DELETE FROM build_jobs WHERE job_id = ?", (jid,))
         return int(cur.rowcount or 0) > 0
 
     def update_build_job_fields(
@@ -1397,25 +1368,24 @@ class SqliteAppStore:
         if not fields:
             return False
         vals.append(str(job_id).strip())
-        with self._lock:
-            cur = self._conn.execute(
+        with self._pool.acquire() as conn:
+            cur = conn.execute(
                 f"UPDATE build_jobs SET {', '.join(fields)} WHERE job_id = ?",
                 vals,
             )
-            self._conn.commit()
         return int(cur.rowcount or 0) > 0
 
     def claim_next_queued_build_job(self) -> dict[str, Any] | None:
-        """Atomically claim the oldest queued job under ``_lock`` (single shared connection).
+        """Atomically claim the oldest queued job within one pool connection transaction.
 
         Avoid ``BEGIN IMMEDIATE`` here: sqlite3 may already have an implicit/open transaction,
         which raises ``OperationalError: cannot start a transaction within a transaction``.
         """
         t = self._now()
         row2 = None
-        with self._lock:
+        with self._pool.acquire() as conn:
             try:
-                row = self._conn.execute(
+                row = conn.execute(
                     """
                     SELECT job_id FROM build_jobs
                     WHERE status = 'queued'
@@ -1424,10 +1394,9 @@ class SqliteAppStore:
                     """
                 ).fetchone()
                 if row is None:
-                    self._conn.commit()
                     return None
                 jid = str(row["job_id"])
-                cur = self._conn.execute(
+                cur = conn.execute(
                     """
                     UPDATE build_jobs
                     SET status = 'running', started_at = ?, phase = 'extract', percent = 1
@@ -1436,18 +1405,12 @@ class SqliteAppStore:
                     (t, jid),
                 )
                 if int(cur.rowcount or 0) == 0:
-                    self._conn.rollback()
                     return None
-                row2 = self._conn.execute(
+                row2 = conn.execute(
                     "SELECT * FROM build_jobs WHERE job_id = ?",
                     (jid,),
                 ).fetchone()
-                self._conn.commit()
             except Exception:
-                try:
-                    self._conn.rollback()
-                except sqlite3.Error:
-                    pass
                 raise
         if row2 is None:
             return None
@@ -1462,8 +1425,8 @@ class SqliteAppStore:
         On failure: (error_message, None).
         """
         jid = str(job_id).strip()
-        with self._lock:
-            row = self._conn.execute(
+        with self._pool.acquire() as conn:
+            row = conn.execute(
                 "SELECT user_id, status, op, kb_name, upload_id FROM build_jobs WHERE job_id = ?",
                 (jid,),
             ).fetchone()
@@ -1478,8 +1441,7 @@ class SqliteAppStore:
                 op = str(row["op"] or "")
                 kb_name = str(row["kb_name"] or "")
                 upload_id = str(row["upload_id"] or "")
-                self._conn.execute("DELETE FROM build_jobs WHERE job_id = ?", (jid,))
-                self._conn.commit()
+                conn.execute("DELETE FROM build_jobs WHERE job_id = ?", (jid,))
                 return (
                     None,
                     {
@@ -1489,9 +1451,8 @@ class SqliteAppStore:
                         "upload_id": upload_id,
                     },
                 )
-            self._conn.execute(
+            conn.execute(
                 "UPDATE build_jobs SET cancel_requested = 1 WHERE job_id = ?",
                 (jid,),
             )
-            self._conn.commit()
         return (None, None)
