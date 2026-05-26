@@ -16,13 +16,21 @@ def get_system_time() -> str:
     return datetime.now().astimezone().isoformat(timespec="seconds")
 
 
+_LLM_PROVIDER = "openai"
 _LLM_BASE_URL = ""
 _LLM_MODEL = ""
 _LLM_API_KEY = ""
 
 
-def set_quick_qa_llm_config(*, base_url: str, model: str, api_key: str) -> None:
-    global _LLM_BASE_URL, _LLM_MODEL, _LLM_API_KEY
+def _normalize_llm_provider(provider: str) -> str:
+    if str(provider or "").strip().lower() == "anthropic":
+        return "anthropic"
+    return "openai"
+
+
+def set_quick_qa_llm_config(*, provider: str, base_url: str, model: str, api_key: str) -> None:
+    global _LLM_PROVIDER, _LLM_BASE_URL, _LLM_MODEL, _LLM_API_KEY
+    _LLM_PROVIDER = _normalize_llm_provider(provider)
     _LLM_BASE_URL = str(base_url or "").strip()
     _LLM_MODEL = str(model or "").strip()
     _LLM_API_KEY = str(api_key or "").strip()
@@ -30,15 +38,25 @@ def set_quick_qa_llm_config(*, base_url: str, model: str, api_key: str) -> None:
 
 
 def _config_error_message() -> str:
+    if _LLM_PROVIDER == "anthropic":
+        return (
+            "Quick QA LLM is not configured. Set RAGRET_LLM_PROVIDER=anthropic with "
+            "RAGRET_LLM_MODEL and RAGRET_LLM_API_KEY in .env."
+        )
     return (
-        "Quick QA LLM is not configured. Start server with "
-        "--llm-base-url, --llm-model, --llm-api-key."
+        "Quick QA LLM is not configured. Set RAGRET_LLM_PROVIDER=openai with "
+        "RAGRET_LLM_BASE_URL, RAGRET_LLM_MODEL, and RAGRET_LLM_API_KEY in .env."
     )
 
 
 def _llm_response_error_message(exc: BaseException) -> str | None:
     msg = str(exc)
     if isinstance(exc, AttributeError) and "model_dump" in msg:
+        if _LLM_PROVIDER == "anthropic":
+            return (
+                "Quick QA LLM returned an unexpected response. "
+                "Check RAGRET_LLM_MODEL and RAGRET_LLM_API_KEY for Anthropic."
+            )
         return (
             "Quick QA LLM returned a non-JSON response. "
             "Check RAGRET_LLM_BASE_URL (OpenAI-compatible /v1, e.g. …/v1) and that the API key is valid."
@@ -47,10 +65,22 @@ def _llm_response_error_message(exc: BaseException) -> str | None:
 
 
 @lru_cache(maxsize=1)
-def _build_llm() -> ChatOpenAI | None:
+def _build_llm() -> ChatOpenAI | Any | None:
+    if _LLM_PROVIDER == "anthropic":
+        if not _LLM_MODEL or not _LLM_API_KEY:
+            return None
+        from langchain_anthropic import ChatAnthropic
+
+        kwargs: dict[str, Any] = {
+            "model": _LLM_MODEL,
+            "api_key": _LLM_API_KEY,
+        }
+        if _LLM_BASE_URL:
+            kwargs["base_url"] = _LLM_BASE_URL
+        return ChatAnthropic(**kwargs)
     if not _LLM_BASE_URL or not _LLM_MODEL or not _LLM_API_KEY:
         return None
-    kwargs: dict[str, Any] = {
+    kwargs = {
         "model": _LLM_MODEL,
         "api_key": _LLM_API_KEY,
         "base_url": _LLM_BASE_URL,
@@ -58,7 +88,13 @@ def _build_llm() -> ChatOpenAI | None:
     return ChatOpenAI(**kwargs)
 
 
+def quick_qa_llm_provider() -> str:
+    return _LLM_PROVIDER
+
+
 def quick_qa_llm_configured() -> bool:
+    if _LLM_PROVIDER == "anthropic":
+        return bool(_LLM_MODEL and _LLM_API_KEY)
     return bool(_LLM_BASE_URL and _LLM_MODEL and _LLM_API_KEY)
 
 

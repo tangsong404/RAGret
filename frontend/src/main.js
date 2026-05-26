@@ -2,6 +2,8 @@ import { loadUiConfig, uiConfig } from "./ui_config.js";
 
 const AUTH_TOKEN_KEY = "ragret.auth.token";
 const STATE_KEY = "ragret.frontend.state.v3";
+const QUICK_QA_MSG_KEY_PREFIX = "ragret.quick_qa.messages.v1";
+const QUICK_QA_MSG_MAX = 24;
 /** Persisted interface language (mirrored from state for stable preference). */
 const UI_LANG_KEY = "ragret.ui.lang";
 /** Persisted UI theme: "dark" | "light" (mirrored for early paint). */
@@ -195,7 +197,9 @@ const i18n = {
     quickQaEntryDesc: "Open an AI Q&A interface powered by a local LangGraph agent.",
     quickQaOpen: "Open AI Q&A",
     quickQaTitle: "Quick Q&A",
-    quickQaSubtitle: "Quickly test knowledge base effects. Content on this page is not kept after refresh.",
+    quickQaSubtitle: "Quickly test knowledge bases. Chat is saved in this browser until you clear it.",
+    quickQaClear: "Clear chat",
+    quickQaClearConfirm: "Clear this conversation? This cannot be undone.",
     quickQaInputLabel: "Your question",
     quickQaInputPlaceholder: "For example: What time is it now?",
     quickQaSend: "Send",
@@ -430,7 +434,9 @@ const i18n = {
     quickQaEntryDesc: "打开一个基于本地 LangGraph agent 的 AI 问答界面。",
     quickQaOpen: "打开 AI 问答",
     quickQaTitle: "快速问答",
-    quickQaSubtitle: "快速测试知识库效果，注意本页面内容刷新不保留",
+    quickQaSubtitle: "快速测试知识库效果；对话保存在本机浏览器，可手动清空",
+    quickQaClear: "清空对话",
+    quickQaClearConfirm: "确定清空当前对话？此操作无法撤销。",
     quickQaInputLabel: "你的问题",
     quickQaInputPlaceholder: "例如：现在几点了？",
     quickQaSend: "发送",
@@ -753,6 +759,76 @@ function loadState() {
   } catch {
     return null;
   }
+}
+
+function quickQaStorageKey(userId) {
+  const uid = Number(userId);
+  if (!Number.isFinite(uid) || uid <= 0) return null;
+  return `${QUICK_QA_MSG_KEY_PREFIX}:${uid}`;
+}
+
+function normalizeQuickQaMessages(raw) {
+  const out = [];
+  if (!Array.isArray(raw)) return out;
+  for (const item of raw) {
+    if (!item || typeof item !== "object") continue;
+    const role = String(item.role || "").toLowerCase();
+    const content = String(item.content || "").trim();
+    if ((role === "user" || role === "assistant") && content) {
+      out.push({ role, content });
+    }
+  }
+  if (out.length > QUICK_QA_MSG_MAX) return out.slice(-QUICK_QA_MSG_MAX);
+  return out;
+}
+
+function loadQuickQaMessages(userId) {
+  const key = quickQaStorageKey(userId);
+  if (!key) return null;
+  try {
+    const raw = localStorage.getItem(key);
+    if (!raw) return null;
+    const parsed = normalizeQuickQaMessages(JSON.parse(raw));
+    return parsed.length ? parsed : null;
+  } catch {
+    return null;
+  }
+}
+
+function persistQuickQaMessages(userId, messages) {
+  const key = quickQaStorageKey(userId);
+  if (!key) return;
+  const trimmed = normalizeQuickQaMessages(messages);
+  try {
+    if (!trimmed.length) {
+      localStorage.removeItem(key);
+      return;
+    }
+    localStorage.setItem(key, JSON.stringify(trimmed));
+  } catch {
+    /* ignore quota / private mode */
+  }
+}
+
+function clearQuickQaStorageForUser(userId) {
+  const key = quickQaStorageKey(userId);
+  if (!key) return;
+  try {
+    localStorage.removeItem(key);
+  } catch {
+    /* ignore */
+  }
+}
+
+function resetQuickQaChatToWelcome(msgsEl, chatMessages, userId) {
+  const welcome = String(T("quickQaWelcome"));
+  chatMessages.length = 0;
+  chatMessages.push({ role: "assistant", content: welcome });
+  if (msgsEl) {
+    msgsEl.innerHTML = "";
+    appendQuickQaMessage(msgsEl, "assistant", welcome);
+  }
+  persistQuickQaMessages(userId, chatMessages);
 }
 
 function applyTheme() {
@@ -1226,6 +1302,7 @@ function bindShellChrome(user) {
       /* ignore */
     }
     revokeAllAvatarBlobs();
+    clearQuickQaStorageForUser(user?.id);
     setToken("");
     go("/login");
   });
@@ -1656,7 +1733,10 @@ async function renderQuickQa(user) {
               <form id="quick-qa-form" class="quick-qa-form">
                 <div class="quick-qa-form-head">
                   <div aria-hidden="true"></div>
-                  <button type="button" class="secondary quick-qa-skill-btn" id="quick-qa-skill-download-btn">${esc(T("skillDownloadQuick"))}</button>
+                  <div class="quick-qa-form-head-actions">
+                    <button type="button" class="secondary quick-qa-skill-btn" id="quick-qa-clear-btn">${esc(T("quickQaClear"))}</button>
+                    <button type="button" class="secondary quick-qa-skill-btn" id="quick-qa-skill-download-btn">${esc(T("skillDownloadQuick"))}</button>
+                  </div>
                 </div>
                 <div class="quick-qa-input-wrap">
                   <textarea id="quick-qa-input" rows="2" placeholder="${esc(T("quickQaInputPlaceholder"))}" required></textarea>
@@ -1690,14 +1770,29 @@ async function renderQuickQa(user) {
       setStatus(e.message, true);
     }
   });
-  appendQuickQaMessage(msgs, "assistant", T("quickQaWelcome"));
-  chatMessages.push({ role: "assistant", content: String(T("quickQaWelcome")) });
+  document.getElementById("quick-qa-clear-btn")?.addEventListener("click", async () => {
+    if (!(await showConfirmDialog(T("quickQaClearConfirm")))) return;
+    resetQuickQaChatToWelcome(msgs, chatMessages, user?.id);
+    input?.focus();
+  });
+  const stored = loadQuickQaMessages(user?.id);
+  if (stored?.length) {
+    for (const m of stored) {
+      chatMessages.push({ role: m.role, content: m.content });
+      appendQuickQaMessage(msgs, m.role, m.content);
+    }
+  } else {
+    appendQuickQaMessage(msgs, "assistant", T("quickQaWelcome"));
+    chatMessages.push({ role: "assistant", content: String(T("quickQaWelcome")) });
+    persistQuickQaMessages(user?.id, chatMessages);
+  }
   form?.addEventListener("submit", async (e) => {
     e.preventDefault();
     const q = String(input?.value || "").trim();
     if (!q) return;
     appendQuickQaMessage(msgs, "user", q);
     chatMessages.push({ role: "user", content: q });
+    persistQuickQaMessages(user?.id, chatMessages);
     if (input) input.value = "";
     if (sendBtn) {
       sendBtn.disabled = true;
@@ -1761,11 +1856,13 @@ async function renderQuickQa(user) {
       if (!ans) throw new Error("Empty answer from server");
       appendQuickQaMessage(msgs, "assistant", ans);
       chatMessages.push({ role: "assistant", content: ans });
+      persistQuickQaMessages(user?.id, chatMessages);
     } catch (err) {
       thinkingEl?.remove();
       const errMsg = String(err?.message || "Error");
       appendQuickQaMessage(msgs, "assistant", errMsg);
       chatMessages.push({ role: "assistant", content: errMsg });
+      persistQuickQaMessages(user?.id, chatMessages);
     } finally {
       if (sendBtn) {
         sendBtn.disabled = false;
@@ -2376,6 +2473,7 @@ async function renderChangePassword(user) {
       } catch {
         /* ignore */
       }
+      clearQuickQaStorageForUser(user?.id);
       setToken("");
       revokeAllAvatarBlobs();
       sessionStorage.setItem("ragret.flash", T("passwordChangedRelogin"));

@@ -20,7 +20,7 @@
 
 - 创建者可设置可见范围，灵活控制访问。
 - **对 Agent 友好**：提供 **API 密钥** 与 **SKILL.md**，便于智能体快速接入团队工作流。
-- **快速问答**：内置对话页（LangGraph Agent），可列出你有权访问的知识库并用自然语言检索；通过 `.env` 配置 OpenAI 兼容 LLM 即可启用完整 Agent 模式。
+- **快速问答**：内置对话页（LangGraph Agent），可列出你有权访问的知识库并用自然语言检索；通过 `.env` 配置 `openai`（默认，OpenAI 兼容）或 `anthropic` LLM 即可启用完整 Agent 模式。
 - 支持通过 **tar 上传** 或 **GitLab / GitHub Webhook** 入库，贴合常见文档存放习惯；飞书等在线文档同步已在规划中。
 - 多格式：**PDF、Word（docx）、Excel（xlsx）、Markdown（md）、邮件（eml）、TXT、CSV、网页链接（html）**。
 - 中英双语界面、浅色 / 深色主题，并可通过 YAML 调整品牌（如 favicon、页面标题）。
@@ -119,13 +119,18 @@ copy .env.example .env
 RAGRET_HOST=127.0.0.1
 RAGRET_PORT=8765
 
-# 快速问答 Agent（OpenAI 兼容接口）
+# 快速问答 Agent（openai  / anthropic）
+# RAGRET_LLM_PROVIDER=openai
 RAGRET_LLM_BASE_URL=https://你的兼容接口/v1
 RAGRET_LLM_MODEL=模型名
 RAGRET_LLM_API_KEY=你的key
+# Anthropic 示例（base_url 可选）：
+# RAGRET_LLM_PROVIDER=anthropic
+# RAGRET_LLM_MODEL=claude-sonnet-4-20250514
+# RAGRET_LLM_API_KEY=你的key
 ```
 
-环境变量统一使用 **`RAGRET_`** 前缀。命令行参数（如 `--host`、`--llm-model`）在传入时会覆盖 `.env` 中的对应项。
+环境变量统一使用 **`RAGRET_`** 前缀。`RAGRET_LLM_PROVIDER` 仅支持 `openai`（默认）或 `anthropic`；非法值会回退为 `openai`。命令行参数（如 `--host`、`--llm-model`）在传入时会覆盖 `.env` 中的对应项（无需单独指定 provider）。
 
 未配置 LLM 时，快速问答会退化为**多知识库索引直返**（无 LangGraph Agent）。
 
@@ -170,7 +175,7 @@ pytest tests/ -q
 
 - 在 `.env` 中配置 **`RAGRET_LLM_*`**（见上文）以启用完整 Agent 模式。
 - 未配置 LLM 时，回答来自简单的多库索引检索拼接。
-- 本页对话内容**刷新后不保留**。
+- 对话保存在**本机浏览器**；可点击「清空对话」重置为欢迎语；**退出登录**会清除当前账号的本地对话缓存。
 
 侧栏 **知识库广场**（`/plaza`）用于浏览与订阅知识库。
 

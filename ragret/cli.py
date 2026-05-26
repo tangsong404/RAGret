@@ -50,6 +50,15 @@ def serve(args: argparse.Namespace) -> int:
 
     _ensure_hf_env()
     settings = _serve_settings_from_args(args)
+    from ragret.quick_qa_agent import quick_qa_llm_configured, quick_qa_llm_provider
+
+    if quick_qa_llm_configured():
+        print(
+            f"Quick QA LLM: provider={quick_qa_llm_provider()} model={settings.llm_model}",
+            flush=True,
+        )
+    else:
+        print("Quick QA LLM: not configured (direct index fallback)", flush=True)
 
     device = resolve_device()
     model_cache = ModelCache(

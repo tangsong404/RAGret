@@ -4,7 +4,11 @@ from pathlib import Path
 
 import pytest
 
-from ragret.quick_qa_agent import quick_qa_llm_configured, set_quick_qa_llm_config
+from ragret.quick_qa_agent import (
+    _normalize_llm_provider,
+    quick_qa_llm_configured,
+    set_quick_qa_llm_config,
+)
 from server.config import Settings, apply_quick_qa_llm, load_settings
 
 
@@ -47,15 +51,43 @@ class TestLlmSettings:
         assert s.llm_model == "from-cli"
         assert s.llm_base_url == "https://env/v1"
 
-    def test_apply_quick_qa_llm(self) -> None:
-        set_quick_qa_llm_config(base_url="", model="", api_key="")
+    def test_llm_type_env_alias(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        monkeypatch.setenv("RAGRET_LLM_TYPE", "anthropic")
+        s = Settings()
+        assert s.llm_provider == "anthropic"
+
+    def test_llm_provider_normalization(self) -> None:
+        assert _normalize_llm_provider("anthropic") == "anthropic"
+        assert _normalize_llm_provider("ANTHROPIC") == "anthropic"
+        assert _normalize_llm_provider("openai") == "openai"
+        assert _normalize_llm_provider("unknown") == "openai"
+        s = Settings(llm_provider="not-a-provider")
+        assert s.llm_provider == "openai"
+
+    def test_apply_quick_qa_llm_openai(self) -> None:
+        set_quick_qa_llm_config(provider="openai", base_url="", model="", api_key="")
         assert quick_qa_llm_configured() is False
         apply_quick_qa_llm(
             Settings(
+                llm_provider="openai",
                 llm_base_url="https://x/v1",
                 llm_model="m",
                 llm_api_key="k",
             )
         )
         assert quick_qa_llm_configured() is True
-        set_quick_qa_llm_config(base_url="", model="", api_key="")
+        set_quick_qa_llm_config(provider="openai", base_url="", model="", api_key="")
+
+    def test_apply_quick_qa_llm_anthropic(self) -> None:
+        set_quick_qa_llm_config(provider="anthropic", base_url="", model="", api_key="")
+        assert quick_qa_llm_configured() is False
+        apply_quick_qa_llm(
+            Settings(
+                llm_provider="anthropic",
+                llm_base_url="",
+                llm_model="claude-test",
+                llm_api_key="ant-key",
+            )
+        )
+        assert quick_qa_llm_configured() is True
+        set_quick_qa_llm_config(provider="openai", base_url="", model="", api_key="")

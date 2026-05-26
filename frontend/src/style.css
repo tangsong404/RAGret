@@ -943,6 +943,14 @@ button.small {
   margin: 0;
 }
 
+.quick-qa-form-head-actions {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
 .quick-qa-input-wrap {
   position: relative;
 }

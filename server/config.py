@@ -4,6 +4,7 @@ import os
 from pathlib import Path
 from typing import Any
 
+from pydantic import AliasChoices, Field, field_validator, model_validator
 from pydantic_settings import BaseSettings, PydanticBaseSettingsSource, SettingsConfigDict
 
 # Legacy env names used by httpd.py / factory (not RAGRET_<FIELD> pydantic names).
@@ -43,15 +44,37 @@ class Settings(BaseSettings):
     api_token: str | None = None
     avatar_max_bytes: int = 2 * 1024 * 1024
     public_host: str | None = None
+    llm_provider: str = Field(
+        default="openai",
+        validation_alias=AliasChoices("llm_provider", "llm_type"),
+    )
     llm_base_url: str = ""
     llm_model: str = ""
     llm_api_key: str = ""
+
+    @model_validator(mode="before")
+    @classmethod
+    def _coalesce_legacy_llm_type(cls, data: object) -> object:
+        payload = dict(data) if isinstance(data, dict) else {}
+        if not str(payload.get("llm_provider") or "").strip():
+            legacy = str(payload.get("llm_type") or os.environ.get("RAGRET_LLM_TYPE") or "").strip()
+            if legacy:
+                payload["llm_provider"] = legacy
+        return payload
+
+    @field_validator("llm_provider", mode="before")
+    @classmethod
+    def _normalize_llm_provider(cls, value: object) -> str:
+        if str(value or "").strip().lower() == "anthropic":
+            return "anthropic"
+        return "openai"
 
     model_config = SettingsConfigDict(
         env_prefix="RAGRET_",
         env_file=".env",
         env_file_encoding="utf-8",
         extra="ignore",
+        populate_by_name=True,
     )
 
     @classmethod
@@ -108,6 +131,7 @@ def apply_quick_qa_llm(settings: Settings) -> None:
     from ragret.quick_qa_agent import set_quick_qa_llm_config
 
     set_quick_qa_llm_config(
+        provider=str(settings.llm_provider or "openai").strip(),
         base_url=str(settings.llm_base_url or "").strip(),
         model=str(settings.llm_model or "").strip(),
         api_key=str(settings.llm_api_key or "").strip(),

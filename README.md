@@ -20,7 +20,7 @@ With `RAGret`, team members can publish knowledge bases to a shared hub, subscri
 
 - Creators can set visibility scopes and control access flexibly.
 - **Agent-friendly**: the app exposes **API keys** and a **SKILL.md** so agents can plug into team workflows quickly.
-- **Quick Q&A**: a built-in chat UI (LangGraph agent) that lists your knowledge bases and searches them with natural language—configure an OpenAI-compatible LLM via `.env`.
+- **Quick Q&A**: a built-in chat UI (LangGraph agent) that lists your knowledge bases and searches them with natural language—configure `openai` (default) or `anthropic` LLM via `.env`.
 - Ingest via **tar upload** or **GitLab / GitHub webhooks**, so it fits common doc storage habits. Support for Feishu and similar online docs is planned.
 - Many formats: **PDF, Word (docx), Excel (xlsx), Markdown (md), Email (eml), TXT, CSV, web links (html)**.
 - Bilingual UI (Chinese / English), light / dark themes, and brand tweaks via YAML (e.g. favicon, page title).
@@ -119,13 +119,18 @@ Example:
 RAGRET_HOST=127.0.0.1
 RAGRET_PORT=8765
 
-# Quick Q&A agent (OpenAI-compatible API)
+# Quick Q&A agent (openai , or anthropic)
+# RAGRET_LLM_PROVIDER=openai
 RAGRET_LLM_BASE_URL=https://your-api.example.com/v1
 RAGRET_LLM_MODEL=your-model-name
 RAGRET_LLM_API_KEY=your-api-key
+# Anthropic example (base_url optional):
+# RAGRET_LLM_PROVIDER=anthropic
+# RAGRET_LLM_MODEL=claude-sonnet-4-20250514
+# RAGRET_LLM_API_KEY=your-api-key
 ```
 
-All settings use the `RAGRET_` prefix. CLI flags such as `--host` or `--llm-model` override `.env` when provided.
+All settings use the `RAGRET_` prefix. `RAGRET_LLM_PROVIDER` must be `openai` (default) or `anthropic`; any other value falls back to `openai`. CLI flags such as `--host` or `--llm-model` override `.env` when provided (no separate provider flag).
 
 Without LLM settings, Quick Q&A falls back to **direct index search** (no LangGraph agent).
 
@@ -170,7 +175,7 @@ After sign-in, the home page is **Quick Q&A**: ask questions in natural language
 
 - Configure **`RAGRET_LLM_*`** in `.env` (see above) for full agent mode.
 - Without LLM config, answers come from a simple multi-KB index search.
-- Chat history on this page is **not kept** after refresh.
+- Chat is stored in **this browser**; use **Clear chat** to reset to the welcome message; **sign out** clears the cached history for that account.
 
 Use **Knowledge plaza** in the sidebar (`/plaza`) to browse and subscribe to bases.
 

@@ -13,6 +13,7 @@ langchain-community
 langchain-huggingface
 langchain-text-splitters
 langchain-openai
+langchain-anthropic
 langgraph
 BCEmbedding
 # Hugging Face tokenizers: SentencePieceExtractor needs both (missing either → TikToken fallback → .bpe.model parse error).
