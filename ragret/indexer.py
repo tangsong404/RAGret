@@ -109,7 +109,7 @@ def build_index(
     chunk_size: int = 1500,
     chunk_overlap: int = 200,
     device: str | None = None,  # noqa: ARG001 — reserved for callers logging device
-    progress: Callable[[int, int], None] | None = None,
+    progress: IndexProgressFn | None = None,
     cancel_check: Callable[[], bool] | None = None,
     kb_name: str | None = None,
     parents_dir: Path | None = None,
@@ -117,6 +117,8 @@ def build_index(
     image_ingest_enabled: bool = False,
     public_host: str | None = None,
     vision_settings: VisionSettings | None = None,
+    resume_cache_dir: Path | None = None,
+    build_workers: int | None = None,
 ) -> int:
     work_dir = work_dir.resolve()
 
@@ -130,13 +132,16 @@ def build_index(
         image_ingest_enabled=image_ingest_enabled,
         public_host=public_host,
         vision_settings=vision_settings,
+        resume_cache_dir=resume_cache_dir,
+        build_workers=build_workers,
+        progress=progress,
     )
 
     contents = [d.page_content for d in texts]
     vectors = embed_batch(
         embed_model,
         contents,
-        on_batch=progress,
+        on_batch=_embed_on_batch(progress),
         cancel_check=cancel_check,
     )
     if not vectors:
@@ -217,6 +222,8 @@ def index_workdir(
     image_ingest_enabled: bool = False,
     public_host: str | None = None,
     vision_settings: VisionSettings | None = None,
+    resume_cache_dir: Path | None = None,
+    build_workers: int | None = None,
     embed_model: Any | None = None,
     model_cache: ModelCache | None = None,
 ) -> int:
@@ -241,7 +248,7 @@ def index_workdir(
             chunk_size=chunk_size,
             chunk_overlap=chunk_overlap,
             device=device,
-            progress=_embed_on_batch(progress),
+            progress=progress,
             cancel_check=cancel_check,
             kb_name=kb_name,
             parents_dir=parents_dir,
@@ -249,6 +256,8 @@ def index_workdir(
             image_ingest_enabled=image_ingest_enabled,
             public_host=public_host,
             vision_settings=vision_settings,
+            resume_cache_dir=resume_cache_dir,
+            build_workers=build_workers,
         )
     finally:
         conn.close()
@@ -269,6 +278,7 @@ def try_incremental_update_workdir(
     image_ingest_enabled: bool = False,
     public_host: str | None = None,
     vision_settings: VisionSettings | None = None,
+    resume_cache_dir: Path | None = None,
     embed_model: Any | None = None,
     model_cache: ModelCache | None = None,
 ) -> bool:
@@ -377,6 +387,7 @@ def try_incremental_update_workdir(
                 image_ingest_enabled=image_ingest_enabled,
                 public_host=public_host,
                 vision_settings=vision_settings,
+                resume_cache_dir=resume_cache_dir,
             )
             for d in parts:
                 d.metadata["source"] = rel

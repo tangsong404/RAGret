@@ -4,7 +4,7 @@ from pathlib import Path
 
 import pytest
 
-from ragret.loader import iter_indexable_files, relative_source_key
+from ragret.loader import is_ignored_corpus_filename, iter_indexable_files, iter_raw_corpus_files, relative_source_key
 
 
 def test_iter_indexable_files_raises_on_nonexistent(tmp_path: Path) -> None:
@@ -45,3 +45,15 @@ def test_relative_source_key_outside_dir() -> None:
 def test_relative_source_key_empty() -> None:
     result = relative_source_key(Path("/tmp/work"), "")
     assert result
+
+
+def test_is_ignored_corpus_filename_word_lock() -> None:
+    assert is_ignored_corpus_filename("~$report.docx") is True
+    assert is_ignored_corpus_filename("report.docx") is False
+
+
+def test_iter_raw_corpus_files_skips_word_lock_files(tmp_path: Path) -> None:
+    (tmp_path / "real.docx").write_bytes(b"PK\x03\x04")
+    (tmp_path / "~$real.docx").write_bytes(b"not-a-docx")
+    names = {p.name for p in iter_raw_corpus_files(tmp_path)}
+    assert names == {"real.docx"}

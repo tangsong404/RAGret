@@ -23,6 +23,16 @@ _RAW_CORPUS_GLOBS = (
 _SKIP_CORPUS_DIR_NAMES = frozenset({"kb_parents", "kb_assets"})
 
 
+def is_ignored_corpus_filename(name: str) -> bool:
+    """Skip Office lock/temp files that are not real documents."""
+    base = Path(name).name
+    if base.startswith("~$"):
+        return True
+    if base.startswith(".~lock."):
+        return True
+    return False
+
+
 def _path_under_skipped_dir(rel_posix: str) -> bool:
     parts = [p for p in rel_posix.split("/") if p]
     return any(part in _SKIP_CORPUS_DIR_NAMES for part in parts)
@@ -42,6 +52,8 @@ def iter_raw_corpus_files(work_dir: Path) -> list[Path]:
                 continue
             rel = f.relative_to(root).as_posix()
             if _path_under_skipped_dir(rel):
+                continue
+            if is_ignored_corpus_filename(f.name):
                 continue
             resolved = f.resolve()
             if resolved in seen:

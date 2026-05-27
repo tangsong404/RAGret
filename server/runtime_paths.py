@@ -55,3 +55,10 @@ def kb_assets_dir(repo_root: Path, kb_name: str, *, create: bool = True) -> Path
     if create:
         p.mkdir(parents=True, exist_ok=True)
     return p
+
+
+def kb_build_cache_dir(repo_root: Path, kb_name: str, *, create: bool = True) -> Path:
+    p = (runtime_data_dir(repo_root, create=create) / "kb_build_cache" / safe_sqlite_basename(kb_name)).resolve()
+    if create:
+        p.mkdir(parents=True, exist_ok=True)
+    return p

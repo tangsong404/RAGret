@@ -13,6 +13,33 @@ def test_preprocess_txt_file(tmp_path: Path) -> None:
     assert preprocess_file(p) == "hello\nworld"
 
 
+def test_preprocess_txt_file_gb18030(tmp_path: Path) -> None:
+    p = tmp_path / "note-gbk.txt"
+    p.write_bytes("中文说明".encode("gb18030"))
+    assert "中文说明" in preprocess_file(p)
+
+
+def test_preprocess_xlsx_openpyxl_style_error_uses_xml_fallback(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    openpyxl = pytest.importorskip("openpyxl")
+    p = tmp_path / "book.xlsx"
+    wb = openpyxl.Workbook()
+    ws = wb.active
+    ws.title = "数据"
+    ws["A1"] = "单元格内容"
+    wb.save(p)
+    wb.close()
+
+    def boom(*_args, **_kwargs):
+        raise TypeError("expected Fill")
+
+    monkeypatch.setattr(openpyxl, "load_workbook", boom)
+    text = preprocess_file(p)
+    assert "单元格内容" in text
+    assert "sheet 数据" in text or "sheet" in text
+
+
 def test_preprocess_pdf_single_stream(tmp_path: Path) -> None:
     pytest.importorskip("pypdf")
     from pypdf import PdfWriter

@@ -29,7 +29,13 @@ from dulwich.errors import NotGitRepository
 from server.archive_util import is_tar_archive_filename, safe_extract_tar_archive
 from server.config import load_settings
 from server.kb_content_paths import cleanup_kb_content_dirs
-from server.runtime_paths import kb_assets_dir, kb_parents_dir, runtime_data_dir, runtime_webhook_dir
+from server.runtime_paths import (
+    kb_assets_dir,
+    kb_build_cache_dir,
+    kb_parents_dir,
+    runtime_data_dir,
+    runtime_webhook_dir,
+)
 
 _UPLOAD_ID_RE = re.compile(r"^[a-f0-9]{24}$")
 
@@ -48,6 +54,7 @@ def _index_build_kwargs(repo_root: Path, kb_name: str) -> dict[str, Any]:
         "kb_name": kb_name,
         "parents_dir": kb_parents_dir(repo_root, kb_name),
         "assets_dir": kb_assets_dir(repo_root, kb_name),
+        "resume_cache_dir": kb_build_cache_dir(repo_root, kb_name),
         "image_ingest_enabled": bool(settings.image_ingest_enabled),
         "public_host": settings.public_host,
         "vision_settings": vision_settings,
@@ -817,6 +824,7 @@ def run_one_build_job(
             app_store.delete_knowledge_base(kb_name)
             cleanup_kb_content_dirs(repo_root=root, kb_name=kb_name)
             registry.remove(kb_name)
+            shutil.rmtree(kb_build_cache_dir(root, kb_name, create=False), ignore_errors=True)
             try:
                 final_db.unlink(missing_ok=True)
             except OSError:
@@ -845,7 +853,6 @@ def run_one_build_job(
         )
         if op == "create":
             app_store.delete_knowledge_base(kb_name)
-            cleanup_kb_content_dirs(repo_root=root, kb_name=kb_name)
             registry.remove(kb_name)
             try:
                 final_db.unlink(missing_ok=True)
@@ -891,10 +898,12 @@ def global_build_worker_loop(
                 )
                 if str(job.get("op")) == "create":
                     app_store.delete_knowledge_base(str(job.get("kb_name") or ""))
-                    cleanup_kb_content_dirs(repo_root=root, kb_name=str(job.get("kb_name") or ""))
+                    kb_key = str(job.get("kb_name") or "")
+                    cleanup_kb_content_dirs(repo_root=root, kb_name=kb_key)
                     registry.remove(str(job.get("kb_name") or ""))
                     fd = _final_sqlite_path(root, str(job.get("kb_name") or ""))
                     fd.unlink(missing_ok=True)
+                    shutil.rmtree(kb_build_cache_dir(root, kb_key, create=False), ignore_errors=True)
                 _cleanup_staging(upload_base, str(job.get("upload_id") or ""))
                 continue
             run_one_build_job(
