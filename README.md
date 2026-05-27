@@ -113,22 +113,7 @@ Copy the template and edit values at the **repo root** (`.env` is gitignored):
 cp .env.example .env   # Windows: copy .env.example .env
 ```
 
-Example:
-
-```env
-RAGRET_HOST=127.0.0.1
-RAGRET_PORT=8765
-
-# Quick Q&A agent (openai , or anthropic)
-# RAGRET_LLM_PROVIDER=openai
-RAGRET_LLM_BASE_URL=https://your-api.example.com/v1
-RAGRET_LLM_MODEL=your-model-name
-RAGRET_LLM_API_KEY=your-api-key
-# Anthropic example (base_url optional):
-# RAGRET_LLM_PROVIDER=anthropic
-# RAGRET_LLM_MODEL=claude-sonnet-4-20250514
-# RAGRET_LLM_API_KEY=your-api-key
-```
+See **`.env.example`** for variable names and comments (host/port, Quick Q&A LLM, optional image ingest / vision, public URL, paths).
 
 All settings use the `RAGRET_` prefix. `RAGRET_LLM_PROVIDER` must be `openai` (default) or `anthropic`; any other value falls back to `openai`. CLI flags such as `--host` or `--llm-model` override `.env` when provided (no separate provider flag).
 
@@ -250,6 +235,14 @@ curl -sS -X POST "$BASE/api/quick-qa" -H "Content-Type: application/json" \
   -H "Authorization: Bearer $SESSION_TOKEN" \
   -d '{"question":"What is in my docs?","lang":"en"}'
 ```
+
+Search JSON now includes `parent_url`, `line_start`, and `line_end` per hit. For tool-augmented RAG:
+
+1. Call `/api/search/{kb}` to get hit chunks plus citation offsets.
+2. `web_fetch` the `parent_url` (requires `Authorization: Bearer` or `X-API-Key`).
+3. Read or grep around `line_start..line_end` for nearby context.
+
+After signing in via the web panel, the browser receives an HttpOnly `ragret_session` cookie so you can open `parent_url` / `assets` links in the **same site** directly; external tools still need Bearer or an API key.
 
 **Agents:** download `SKILL.md` from the UI (**SKILL.md** in the sidebar) and import it into Claude Code, Cursor, OpenClaw, or other agent tools.
 

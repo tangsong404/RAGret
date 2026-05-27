@@ -5,7 +5,8 @@ from fastapi.responses import PlainTextResponse, Response
 
 from ragret.cache import IndexCache, ModelCache
 from ragret.registry import IndexRegistry, safe_index_name
-from server.deps import get_index_cache, get_model_cache, get_registry, get_store, optional_actor
+from server.config import Settings
+from server.deps import get_index_cache, get_model_cache, get_registry, get_settings, get_store, optional_actor
 from server.schemas import SearchResponse, SearchResultOut
 from server.services.search_service import (
     format_search_text,
@@ -31,6 +32,7 @@ def search(
     registry: IndexRegistry = Depends(get_registry),
     model_cache: ModelCache = Depends(get_model_cache),
     index_cache: IndexCache = Depends(get_index_cache),
+    settings: Settings = Depends(get_settings),
     actor: dict = Depends(optional_actor),
 ):
     try:
@@ -56,6 +58,8 @@ def search(
             k=k,
             score_threshold=threshold,
             rerank_top_n=top_n,
+            kb_name=name,
+            public_host=settings.public_host,
         )
     except Exception as e:
         raise HTTPException(500, detail=str(e))

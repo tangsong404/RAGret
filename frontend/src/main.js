@@ -198,6 +198,9 @@ const i18n = {
     quickQaOpen: "Open AI Q&A",
     quickQaTitle: "Quick Q&A",
     quickQaSubtitle: "Quickly test knowledge bases. Chat is saved in this browser until you clear it.",
+    parentDocTitle: "Parent document",
+    parentDocSubtitle: "Processed plain text for citation context",
+    parentDocMissingParams: "Missing ?kb= and ?path= query parameters.",
     quickQaClear: "Clear chat",
     quickQaClearConfirm: "Clear this conversation? This cannot be undone.",
     quickQaInputLabel: "Your question",
@@ -435,6 +438,9 @@ const i18n = {
     quickQaOpen: "打开 AI 问答",
     quickQaTitle: "快速问答",
     quickQaSubtitle: "快速测试知识库效果；对话保存在本机浏览器，可手动清空",
+    parentDocTitle: "父文档",
+    parentDocSubtitle: "用于引用的预处理纯文本",
+    parentDocMissingParams: "缺少查询参数 ?kb= 与 ?path=。",
     quickQaClear: "清空对话",
     quickQaClearConfirm: "确定清空当前对话？此操作无法撤销。",
     quickQaInputLabel: "你的问题",
@@ -643,6 +649,47 @@ function setToken(t) {
   else localStorage.removeItem(AUTH_TOKEN_KEY);
 }
 
+/** Mirror Bearer token into HttpOnly cookie so direct /api/kb/.../parents/... links work. */
+async function syncSessionCookie() {
+  if (!getToken()) return;
+  try {
+    await fetchJSON("/api/auth/sync-cookie", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: "{}",
+    });
+  } catch {
+    /* ignore; login also sets cookie when it succeeds */
+  }
+}
+
+async function fetchParentText(kbName, relPath) {
+  const kb = encodeURIComponent(kbName);
+  const rel = relPath
+    .split("/")
+    .map((seg) => encodeURIComponent(seg))
+    .join("/");
+  const res = await fetch(`/api/kb/${kb}/parents/${rel}`, {
+    credentials: "include",
+    headers: authHeaders(),
+  });
+  const ct = res.headers.get("content-type") || "";
+  if (res.status === 401) {
+    setToken("");
+    go("/login");
+    const data = ct.includes("json") ? await res.json().catch(() => ({})) : {};
+    throw new Error(data.error || "Login required");
+  }
+  if (!res.ok) {
+    if (ct.includes("json")) {
+      const data = await res.json().catch(() => ({}));
+      throw new Error(data.error || `HTTP ${res.status}`);
+    }
+    throw new Error(`HTTP ${res.status}`);
+  }
+  return res.text();
+}
+
 function authHeaders() {
   const t = getToken();
   return t ? { Authorization: `Bearer ${t}` } : {};
@@ -650,7 +697,7 @@ function authHeaders() {
 
 async function fetchJSON(url, options = {}) {
   const headers = { ...(options.headers || {}), ...authHeaders() };
-  const res = await fetch(url, { ...options, headers });
+  const res = await fetch(url, { credentials: "include", ...options, headers });
   const data = await res.json().catch(() => ({}));
   if (
     res.status === 401 &&
@@ -685,6 +732,14 @@ function parseRoute() {
   if (p === "/my-kb") return { type: "myKb" };
   if (p === "/plaza") return { type: "home" };
   if (p === "/quick-qa") return { type: "quickQa" };
+  if (p === "/parent") {
+    const q = new URLSearchParams(location.search);
+    return {
+      type: "parentView",
+      kb: (q.get("kb") || "").trim(),
+      path: (q.get("path") || "").trim(),
+    };
+  }
   if (p === "/") return { type: "quickQa" };
   if (p === "/profile") return { type: "profile" };
   if (p === "/change-password") return { type: "changePassword" };
@@ -853,6 +908,7 @@ async function ensureSession() {
   if (!getToken()) return null;
   try {
     const me = await fetchJSON("/api/auth/me");
+    await syncSessionCookie();
     return me.user || null;
   } catch {
     return null;
@@ -1615,6 +1671,7 @@ async function renderLogin(register) {
         body: JSON.stringify({ username, password }),
       });
       setToken(data.token);
+      await syncSessionCookie();
       const returnTo = sessionStorage.getItem("ragret.returnTo") || "/";
       sessionStorage.removeItem("ragret.returnTo");
       history.replaceState({}, "", returnTo);
@@ -2469,7 +2526,12 @@ async function renderChangePassword(user) {
         body: JSON.stringify({ current_password: cur, new_password: nw }),
       });
       try {
-        await fetch("/api/auth/logout", { method: "POST", headers: { "Content-Type": "application/json", ...authHeaders() }, body: "{}" });
+        await fetch("/api/auth/logout", {
+          method: "POST",
+          credentials: "include",
+          headers: { "Content-Type": "application/json", ...authHeaders() },
+          body: "{}",
+        });
       } catch {
         /* ignore */
       }
@@ -2612,6 +2674,40 @@ function renderKbDetailTopbar(user, { name, subtitle = "" }) {
         ${renderTopbarUser(user)}
       </div>
     </header>`;
+}
+
+async function renderParentView(user, kb, relPath) {
+  const title = relPath || kb || T("parentDocTitle");
+  appEl.innerHTML = `
+    <div class="app-shell">
+      ${renderShellSidebar(null)}
+      <div class="shell-main">
+        <div class="shell-content">
+          ${renderTopbar(user, { title: kb ? `${kb} · ${title}` : title, subtitle: T("parentDocSubtitle") })}
+          <div class="shell-body page-frame">
+            <div class="page-frame__inner page-frame__inner--wide">
+              <pre id="parent-doc-body" class="parent-doc-pre muted">…</pre>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>`;
+  bindShellChrome(user);
+  void refreshTopbarAvatar(user);
+  const pre = document.getElementById("parent-doc-body");
+  if (!kb || !relPath) {
+    pre.textContent = T("parentDocMissingParams");
+    pre.classList.add("error");
+    return;
+  }
+  try {
+    pre.textContent = await fetchParentText(kb, relPath);
+    pre.classList.remove("muted", "error");
+  } catch (e) {
+    pre.textContent = e.message || String(e);
+    pre.classList.add("error");
+    pre.classList.remove("muted");
+  }
 }
 
 async function renderKbPublicDetail(user, name) {
@@ -3602,6 +3698,11 @@ async function render() {
 
   setAuthPageLayout(false);
   clearStatus();
+
+  if (route.type === "parentView") {
+    await renderParentView(user, route.kb, route.path);
+    return;
+  }
 
   if (route.type === "kb") {
     await renderKbPublicDetail(user, route.name);

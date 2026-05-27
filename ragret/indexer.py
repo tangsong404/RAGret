@@ -10,6 +10,7 @@ from typing import Any, Callable
 import numpy as np
 from langchain_core.documents import Document
 
+from ragret.cache import ModelCache
 from ragret.embedder import (
     EMBEDDING_MODEL,
     BuildCancelledError,
@@ -19,13 +20,14 @@ from ragret.embedder import (
     reraise_if_missing_hf_weights,
 )
 from ragret.fts_index import chunks_fts_rebuild, try_init_chunks_fts
+from ragret.corpus_build import build_chunks_for_source, build_chunks_from_workdir
 from ragret.loader import (
-    chunk_documents,
-    fingerprint_map,
-    load_documents_from_dir,
-    load_one_file,
+    corpus_fingerprint_map,
     relative_source_key,
 )
+from ragret.media_assets import delete_assets_for_source
+from ragret.parent_store import delete_parent_text
+from ragret.vision_config import VisionSettings
 
 IndexProgressFn = Callable[[str, int, str | None], None]
 
@@ -78,6 +80,27 @@ def clear_chunks(conn: Any) -> None:
     conn.commit()
 
 
+def _load_stored_corpus_fingerprints(conn: Any) -> dict[str, str] | None:
+    raw = get_meta(conn, "corpus_fingerprints")
+    if not raw:
+        raw = get_meta(conn, "source_fingerprints")
+    if not raw:
+        return None
+    try:
+        parsed = json.loads(raw)
+    except json.JSONDecodeError:
+        return None
+    if not isinstance(parsed, dict):
+        return None
+    return {str(k): str(v) for k, v in parsed.items()}
+
+
+def _save_corpus_fingerprints(conn: Any, fp_map: dict[str, str]) -> None:
+    text = json.dumps(fp_map, sort_keys=True, ensure_ascii=False)
+    set_meta(conn, "corpus_fingerprints", text)
+    set_meta(conn, "source_fingerprints", text)
+
+
 def build_index(
     conn: Any,
     work_dir: Path,
@@ -88,11 +111,26 @@ def build_index(
     device: str | None = None,  # noqa: ARG001 — reserved for callers logging device
     progress: Callable[[int, int], None] | None = None,
     cancel_check: Callable[[], bool] | None = None,
+    kb_name: str | None = None,
+    parents_dir: Path | None = None,
+    assets_dir: Path | None = None,
+    image_ingest_enabled: bool = False,
+    public_host: str | None = None,
+    vision_settings: VisionSettings | None = None,
 ) -> int:
     work_dir = work_dir.resolve()
 
-    documents = load_documents_from_dir(work_dir)
-    texts = chunk_documents(documents, chunk_size=chunk_size, chunk_overlap=chunk_overlap)
+    texts = build_chunks_from_workdir(
+        work_dir,
+        kb_name=kb_name,
+        parents_dir=parents_dir,
+        assets_dir=assets_dir,
+        chunk_size=chunk_size,
+        chunk_overlap=chunk_overlap,
+        image_ingest_enabled=image_ingest_enabled,
+        public_host=public_host,
+        vision_settings=vision_settings,
+    )
 
     contents = [d.page_content for d in texts]
     vectors = embed_batch(
@@ -129,13 +167,29 @@ def build_index(
         )
         local_i += 1
 
-    fp_map = fingerprint_map(work_dir)
-    set_meta(conn, "source_fingerprints", json.dumps(fp_map, sort_keys=True, ensure_ascii=False))
+    fp_map = corpus_fingerprint_map(work_dir)
+    _save_corpus_fingerprints(conn, fp_map)
     set_meta(conn, "chunk_size", str(chunk_size))
     set_meta(conn, "chunk_overlap", str(chunk_overlap))
     chunks_fts_rebuild(conn)
     conn.commit()
     return len(texts)
+
+
+def _resolve_embed_model(
+    device: str,
+    *,
+    embed_model: Any | None = None,
+    model_cache: ModelCache | None = None,
+) -> Any:
+    if embed_model is not None:
+        return embed_model
+    try:
+        if model_cache is not None:
+            return model_cache.get_embed_model()
+        return make_embed_model(device)
+    except Exception as e:
+        reraise_if_missing_hf_weights(e)
 
 
 def _embed_on_batch(progress: IndexProgressFn | None) -> Callable[[int, int], None] | None:
@@ -157,6 +211,14 @@ def index_workdir(
     device: str | None = None,
     progress: IndexProgressFn | None = None,
     cancel_check: Callable[[], bool] | None = None,
+    kb_name: str | None = None,
+    parents_dir: Path | None = None,
+    assets_dir: Path | None = None,
+    image_ingest_enabled: bool = False,
+    public_host: str | None = None,
+    vision_settings: VisionSettings | None = None,
+    embed_model: Any | None = None,
+    model_cache: ModelCache | None = None,
 ) -> int:
     """Full rebuild: open SQLite DB, embed corpus, write chunks. Legacy-compatible API."""
     work_dir = work_dir.resolve()
@@ -166,10 +228,9 @@ def index_workdir(
     if cancel_check is not None and cancel_check():
         raise BuildCancelledError("cancelled")
 
-    try:
-        embed_model = make_embed_model(device)
-    except Exception as e:
-        reraise_if_missing_hf_weights(e)
+    embed_model = _resolve_embed_model(
+        device, embed_model=embed_model, model_cache=model_cache
+    )
 
     conn = connect(db_path)
     try:
@@ -182,6 +243,12 @@ def index_workdir(
             device=device,
             progress=_embed_on_batch(progress),
             cancel_check=cancel_check,
+            kb_name=kb_name,
+            parents_dir=parents_dir,
+            assets_dir=assets_dir,
+            image_ingest_enabled=image_ingest_enabled,
+            public_host=public_host,
+            vision_settings=vision_settings,
         )
     finally:
         conn.close()
@@ -196,6 +263,14 @@ def try_incremental_update_workdir(
     device: str | None = None,
     progress: IndexProgressFn | None = None,
     cancel_check: Callable[[], bool] | None = None,
+    kb_name: str | None = None,
+    parents_dir: Path | None = None,
+    assets_dir: Path | None = None,
+    image_ingest_enabled: bool = False,
+    public_host: str | None = None,
+    vision_settings: VisionSettings | None = None,
+    embed_model: Any | None = None,
+    model_cache: ModelCache | None = None,
 ) -> bool:
     """Apply minimal SQLite changes from a new corpus. Returns False if full rebuild is required."""
     work_dir = work_dir.resolve()
@@ -215,14 +290,8 @@ def try_incremental_update_workdir(
         n_chunks = conn.execute("SELECT COUNT(*) FROM chunks").fetchone()[0]
         if int(n_chunks or 0) == 0:
             return False
-        raw_fp = get_meta(conn, "source_fingerprints")
-        if not raw_fp:
-            return False
-        try:
-            old_fp: dict[str, str] = json.loads(raw_fp)
-        except json.JSONDecodeError:
-            return False
-        if not isinstance(old_fp, dict):
+        old_fp = _load_stored_corpus_fingerprints(conn)
+        if not old_fp:
             return False
         stored_cs = get_meta(conn, "chunk_size")
         stored_co = get_meta(conn, "chunk_overlap")
@@ -241,7 +310,7 @@ def try_incremental_update_workdir(
         conn.close()
 
     try:
-        new_fp = fingerprint_map(work_dir)
+        new_fp = corpus_fingerprint_map(work_dir)
     except ValueError:
         return False
     if not new_fp:
@@ -259,7 +328,7 @@ def try_incremental_update_workdir(
         try:
             set_meta(conn, "indexed_work_dir", str(work_dir))
             set_meta(conn, "indexed_at", str(int(time.time())))
-            set_meta(conn, "source_fingerprints", json.dumps(new_fp, sort_keys=True, ensure_ascii=False))
+            _save_corpus_fingerprints(conn, new_fp)
         finally:
             conn.close()
         report("done", 100, "no file changes")
@@ -269,20 +338,25 @@ def try_incremental_update_workdir(
     if cancel_check is not None and cancel_check():
         raise BuildCancelledError("cancelled")
 
-    try:
-        embed_model = make_embed_model(device)
-    except Exception as e:
-        reraise_if_missing_hf_weights(e)
+    embed_model = _resolve_embed_model(
+        device, embed_model=embed_model, model_cache=model_cache
+    )
 
     conn = connect(db_path)
     try:
         for rel in sorted(removed):
             conn.execute("DELETE FROM chunks WHERE source = ?", (rel,))
+            if parents_dir is not None:
+                delete_parent_text(parents_dir, rel)
+            if assets_dir is not None:
+                delete_assets_for_source(assets_dir=assets_dir, source_key=rel)
         conn.commit()
 
         to_embed: list[tuple[str, Document]] = []
         for rel in sorted(added_or_changed):
             conn.execute("DELETE FROM chunks WHERE source = ?", (rel,))
+            if assets_dir is not None:
+                delete_assets_for_source(assets_dir=assets_dir, source_key=rel)
             fp = (work_dir / rel).resolve()
             try:
                 fp.relative_to(work_dir)
@@ -292,16 +366,25 @@ def try_incremental_update_workdir(
             if not fp.is_file():
                 conn.rollback()
                 return False
-            docs = load_one_file(fp)
-            for d in docs:
-                d.metadata["source"] = str(fp)
-            parts = chunk_documents(docs, chunk_size=chunk_size, chunk_overlap=chunk_overlap)
+            parts = build_chunks_for_source(
+                raw_path=fp,
+                source_key=rel,
+                kb_name=kb_name,
+                parents_dir=parents_dir,
+                assets_dir=assets_dir,
+                chunk_size=chunk_size,
+                chunk_overlap=chunk_overlap,
+                image_ingest_enabled=image_ingest_enabled,
+                public_host=public_host,
+                vision_settings=vision_settings,
+            )
             for d in parts:
+                d.metadata["source"] = rel
                 to_embed.append((rel, d))
         conn.commit()
 
         if not to_embed:
-            set_meta(conn, "source_fingerprints", json.dumps(new_fp, sort_keys=True, ensure_ascii=False))
+            _save_corpus_fingerprints(conn, new_fp)
             set_meta(conn, "indexed_work_dir", str(work_dir))
             set_meta(conn, "indexed_at", str(int(time.time())))
             chunks_fts_rebuild(conn)
@@ -347,7 +430,7 @@ def try_incremental_update_workdir(
                     pct = 85 + int(13 * (row_i + 1) / max(n_emb, 1))
                     report("sqlite", min(99, pct), f"{row_i + 1}/{n_emb}")
 
-        set_meta(conn, "source_fingerprints", json.dumps(new_fp, sort_keys=True, ensure_ascii=False))
+        _save_corpus_fingerprints(conn, new_fp)
         set_meta(conn, "indexed_work_dir", str(work_dir))
         set_meta(conn, "indexed_at", str(int(time.time())))
         set_meta(conn, "chunk_size", str(chunk_size))

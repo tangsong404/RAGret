@@ -1951,3 +1951,14 @@ a {
 :root[data-theme="light"] .page-frame .kb-detail-flow .kb-detail-block-title {
   color: rgba(55, 65, 100, 0.92);
 }
+
+.parent-doc-pre {
+  margin: 0;
+  white-space: pre-wrap;
+  word-break: break-word;
+  font-family: ui-monospace, Consolas, "Microsoft YaHei", monospace;
+  font-size: 0.875rem;
+  line-height: 1.55;
+  max-height: calc(100vh - 11rem);
+  overflow: auto;
+}

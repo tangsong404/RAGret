@@ -20,6 +20,9 @@ BCEmbedding
 sentencepiece>=0.1.99
 protobuf>=3.20
 pypdf
+python-docx>=1.1
+openpyxl>=3.1
+Pillow>=10.0
 dulwich
 
 # Dev / test (FastAPI TestClient + unit tests)

@@ -9,6 +9,7 @@ from typing import Any
 
 from ragret.registry import IndexRegistry, safe_index_name
 from server.build_queue import cleanup_upload_staging, is_http_git_clone_url, wake_build_worker
+from server.kb_content_paths import cleanup_kb_content_dirs
 from server.runtime_paths import kb_sqlite_path
 from server.config import Settings
 from server.serializers import job_public_view
@@ -18,6 +19,10 @@ from server.webhook_urls import folder_push_url_for_kb
 
 _UPLOAD_ID_RE = re.compile(r"^[a-f0-9]{24}$")
 _MAX_USER_UPLOAD_JOBS = 3
+
+
+def _cleanup_kb_runtime(repo_root: Path, kb_name: str) -> None:
+    cleanup_kb_content_dirs(repo_root=repo_root, kb_name=kb_name)
 
 
 def list_jobs(user_id: int, store: AppStore) -> list[dict[str, Any]]:
@@ -53,6 +58,7 @@ def cancel_job(
         if op_q == "create":
             store.delete_knowledge_base(kb_n)
             registry.remove(kb_n)
+            _cleanup_kb_runtime(repo_root, kb_n)
             fd = kb_sqlite_path(repo_root, kb_n)
             try:
                 if fd.is_file():
@@ -173,6 +179,7 @@ def start_build_job(
             )
         except Exception as e:
             store.delete_knowledge_base(index_name)
+            _cleanup_kb_runtime(repo_root, index_name)
             raise RuntimeError(str(e)) from e
         wake_build_worker()
         return {"job_id": job_id}
@@ -207,6 +214,7 @@ def start_build_job(
     if not _UPLOAD_ID_RE.match(upload_id):
         if op == "create":
             store.delete_knowledge_base(index_name)
+            _cleanup_kb_runtime(repo_root, index_name)
         raise ValueError("Invalid upload_id")
     staging = (upload_base / "staging" / upload_id).resolve()
     try:
@@ -214,10 +222,12 @@ def start_build_job(
     except ValueError:
         if op == "create":
             store.delete_knowledge_base(index_name)
+            _cleanup_kb_runtime(repo_root, index_name)
         raise ValueError("Invalid upload_id")
     if not staging.is_dir():
         if op == "create":
             store.delete_knowledge_base(index_name)
+            _cleanup_kb_runtime(repo_root, index_name)
         raise LookupError("Upload not found; upload the archive first")
 
     is_public_flag = bool(data.get("is_public", False))
@@ -254,6 +264,7 @@ def start_build_job(
     except Exception as e:
         if op == "create":
             store.delete_knowledge_base(index_name)
+            _cleanup_kb_runtime(repo_root, index_name)
         raise RuntimeError(str(e)) from e
     wake_build_worker()
     push_url = folder_push_url_for_kb(index_name, settings, port=port) if settings else None

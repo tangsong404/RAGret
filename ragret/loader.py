@@ -7,6 +7,58 @@ from langchain_community.document_loaders import PyPDFLoader, TextLoader
 from langchain_core.documents import Document
 from langchain_text_splitters import RecursiveCharacterTextSplitter
 
+_RAW_CORPUS_GLOBS = (
+    "**/*.pdf",
+    "**/*.txt",
+    "**/*.md",
+    "**/*.markdown",
+    "**/*.docx",
+    "**/*.xlsx",
+    "**/*.png",
+    "**/*.jpg",
+    "**/*.jpeg",
+    "**/*.webp",
+    "**/*.gif",
+)
+_SKIP_CORPUS_DIR_NAMES = frozenset({"kb_parents", "kb_assets"})
+
+
+def _path_under_skipped_dir(rel_posix: str) -> bool:
+    parts = [p for p in rel_posix.split("/") if p]
+    return any(part in _SKIP_CORPUS_DIR_NAMES for part in parts)
+
+
+def iter_raw_corpus_files(work_dir: Path) -> list[Path]:
+    if not work_dir.exists():
+        raise FileNotFoundError(work_dir)
+    if work_dir.is_file():
+        return [work_dir.resolve()]
+    root = work_dir.resolve()
+    out: list[Path] = []
+    seen: set[Path] = set()
+    for glob_pat in _RAW_CORPUS_GLOBS:
+        for f in sorted(root.glob(glob_pat)):
+            if not f.is_file():
+                continue
+            rel = f.relative_to(root).as_posix()
+            if _path_under_skipped_dir(rel):
+                continue
+            resolved = f.resolve()
+            if resolved in seen:
+                continue
+            seen.add(resolved)
+            out.append(resolved)
+    return out
+
+
+def corpus_fingerprint_map(work_dir: Path) -> dict[str, str]:
+    root = work_dir.resolve()
+    m: dict[str, str] = {}
+    for f in iter_raw_corpus_files(work_dir):
+        key = f.relative_to(root).as_posix()
+        m[key] = _file_sha256(f)
+    return m
+
 
 def load_one_file(path: Path) -> list[Document]:
     suf = path.suffix.lower()

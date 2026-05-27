@@ -113,22 +113,7 @@ docker run --name ragret -it --gpus all -p 8765:8765 -v /path/on/host/models:/op
 copy .env.example .env
 ```
 
-示例：
-
-```env
-RAGRET_HOST=127.0.0.1
-RAGRET_PORT=8765
-
-# 快速问答 Agent（openai  / anthropic）
-# RAGRET_LLM_PROVIDER=openai
-RAGRET_LLM_BASE_URL=https://你的兼容接口/v1
-RAGRET_LLM_MODEL=模型名
-RAGRET_LLM_API_KEY=你的key
-# Anthropic 示例（base_url 可选）：
-# RAGRET_LLM_PROVIDER=anthropic
-# RAGRET_LLM_MODEL=claude-sonnet-4-20250514
-# RAGRET_LLM_API_KEY=你的key
-```
+变量说明见仓库根目录 **`.env.example`**（含主机/端口、快速问答 LLM、可选图片入库与 Vision、对外 URL、路径等）。
 
 环境变量统一使用 **`RAGRET_`** 前缀。`RAGRET_LLM_PROVIDER` 仅支持 `openai`（默认）或 `anthropic`；非法值会回退为 `openai`。命令行参数（如 `--host`、`--llm-model`）在传入时会覆盖 `.env` 中的对应项（无需单独指定 provider）。
 
@@ -250,6 +235,16 @@ curl -sS -X POST "$BASE/api/quick-qa" -H "Content-Type: application/json" \
   -H "Authorization: Bearer $SESSION_TOKEN" \
   -d '{"question":"文档里写了什么？","lang":"zh"}'
 ```
+
+检索 JSON 结果现在包含每个命中的 `parent_url`、`line_start`、`line_end`。推荐的 tool-augmented RAG 流程：
+
+1. 调用 `/api/search/{kb}` 获取命中 chunk 与引用坐标。
+2. 对 `parent_url` 执行 `web_fetch`（需 `Authorization: Bearer` 或 `X-API-Key`）。
+3. 以 `line_start..line_end` 为中心读取或 grep 附近上下文。
+
+在 Web 面板登录后，浏览器会同步 HttpOnly Cookie `ragret_session`，因此可在**同一站点**直接打开 `parent_url` / 资源 `assets` 链接；外部工具仍须携带 Bearer 或 API Key。
+
+启用 `RAGRET_IMAGE_INGEST_ENABLED` 时，内嵌图（含 Word 的 EMF/WMF）会**强制转为 PNG**。转换顺序：Pillow → ImageMagick (`magick`) → Inkscape → LibreOffice（`soffice`）。Linux/容器请至少安装其中一种；Windows 上 Pillow 也可直接读部分 EMF/WMF。
 
 **智能体：** 在侧栏打开 **SKILL.md** 下载文档，导入 Claude Code、Cursor、OpenClaw 或其他 Agent 工具。
 

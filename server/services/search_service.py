@@ -49,6 +49,9 @@ def search_index(
     k: int = 10,
     score_threshold: float = 0.3,
     rerank_top_n: int = 5,
+    *,
+    kb_name: str | None = None,
+    public_host: str | None = None,
 ) -> list[dict]:
     return core_search(
         db_path,
@@ -58,6 +61,8 @@ def search_index(
         k=k,
         score_threshold=score_threshold,
         rerank_top_n=rerank_top_n,
+        kb_name=kb_name,
+        public_host=public_host,
     )
 
 
@@ -93,6 +98,13 @@ def format_search_text(
         lines.append(f"[{i}] rerank={rs}  vector={vs}{extra}")
         if src:
             lines.append(f"    source: {src}")
+        parent_url = r.get("parent_url")
+        line_start = r.get("line_start")
+        line_end = r.get("line_end")
+        if parent_url:
+            lines.append(f"    parent_url: {parent_url}")
+        if line_start is not None and line_end is not None:
+            lines.append(f"    lines: {line_start}-{line_end}")
         lines.append(str(r.get("content", "")).strip())
         lines.append("")
     lines.append("--- Short summary ---")

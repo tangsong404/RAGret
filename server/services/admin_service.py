@@ -3,6 +3,7 @@ from __future__ import annotations
 from pathlib import Path
 
 from ragret.registry import IndexRegistry, safe_index_name
+from server.kb_content_paths import cleanup_kb_content_dirs
 from server.store.protocol import AppStore
 
 
@@ -11,6 +12,7 @@ def delete_index(
     actor: dict,
     store: AppStore,
     registry: IndexRegistry,
+    repo_root: Path,
     *,
     delete_sqlite: bool = True,
 ) -> dict:
@@ -42,4 +44,5 @@ def delete_index(
             deleted_file = True
         except OSError:
             deleted_file = False
+    cleanup_kb_content_dirs(repo_root=repo_root, kb_name=safe_name)
     return {"name": safe_name, "deleted_sqlite": deleted_file}

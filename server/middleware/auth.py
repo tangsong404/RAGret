@@ -5,6 +5,8 @@ from typing import Any
 from fastapi import Request
 from starlette.middleware.base import BaseHTTPMiddleware
 
+from server.session_cookie import SESSION_COOKIE_NAME
+
 
 class AuthMiddleware(BaseHTTPMiddleware):
     """Parse Authorization header and store actor in request.state.actor."""
@@ -12,6 +14,10 @@ class AuthMiddleware(BaseHTTPMiddleware):
     async def dispatch(self, request: Request, call_next: Any) -> Any:
         auth = (request.headers.get("Authorization") or "").strip()
         api_key = (request.headers.get("X-API-Key") or "").strip()
+        if not auth:
+            cookie_token = (request.cookies.get(SESSION_COOKIE_NAME) or "").strip()
+            if cookie_token:
+                auth = f"Bearer {cookie_token}"
         request.state.actor = _resolve_actor(auth, api_key)
         return await call_next(request)
 

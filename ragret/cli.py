@@ -90,6 +90,7 @@ def serve(args: argparse.Namespace) -> int:
         registry=registry,
         app_store=app_store,
         upload_base=upload_base,
+        model_cache=model_cache,
     )
     wake_build_worker()
 

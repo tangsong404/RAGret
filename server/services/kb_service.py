@@ -1,13 +1,15 @@
 from __future__ import annotations
 
 import secrets
+import mimetypes
 from pathlib import Path
 from typing import Any
 
 from ragret.registry import IndexRegistry, safe_index_name
 from server.media_util import resolve_image_mime
 from server.config import Settings
-from server.runtime_paths import kb_sqlite_path
+from server.kb_content_paths import resolve_under_base
+from server.runtime_paths import kb_assets_dir, kb_parents_dir, kb_sqlite_path
 from server.serializers import serialize_kb
 from server.store.protocol import AppStore, KBRecord
 from server.webhook_urls import folder_push_url_for_kb
@@ -324,16 +326,57 @@ def _patch_kb_owner(
     return active_key
 
 
-def load_kb_icon(name: str, actor: dict[str, Any], store: AppStore) -> tuple[str, bytes]:
-    key = safe_index_name(name)
+def _check_kb_read(actor: dict[str, Any], store: AppStore, key: str) -> None:
     kind = actor.get("kind")
     uid = actor.get("user_id")
-    if kind != "superuser":
-        if uid is None:
-            raise PermissionError("Login required")
-        perm = store.permission_for(int(uid), key)
-        if perm is None or not perm.can_read:
-            raise PermissionError("Forbidden")
+    if kind == "superuser":
+        return
+    if uid is None:
+        raise PermissionError("Login required")
+    perm = store.permission_for(int(uid), key)
+    if perm is None or not perm.can_read:
+        raise PermissionError("Forbidden")
+
+
+def load_kb_parent_text(
+    name: str,
+    rel_path: str,
+    actor: dict[str, Any],
+    store: AppStore,
+    repo_root: Path,
+) -> str:
+    key = safe_index_name(name)
+    _check_kb_read(actor, store, key)
+    base = kb_parents_dir(repo_root, key, create=False)
+    path = resolve_under_base(base, rel_path)
+    if not path.is_file():
+        raise LookupError("Parent document not found")
+    return path.read_text(encoding="utf-8")
+
+
+def load_kb_asset(
+    name: str,
+    rel_path: str,
+    actor: dict[str, Any],
+    store: AppStore,
+    repo_root: Path,
+) -> tuple[str, bytes]:
+    key = safe_index_name(name)
+    _check_kb_read(actor, store, key)
+    base = kb_assets_dir(repo_root, key, create=False)
+    path = resolve_under_base(base, rel_path)
+    if not path.is_file():
+        raise LookupError("Asset not found")
+    raw = path.read_bytes()
+    mime, _ = mimetypes.guess_type(path.name)
+    if not mime:
+        mime = resolve_image_mime("", raw) or "application/octet-stream"
+    return mime, raw
+
+
+def load_kb_icon(name: str, actor: dict[str, Any], store: AppStore) -> tuple[str, bytes]:
+    key = safe_index_name(name)
+    _check_kb_read(actor, store, key)
     icon = store.load_kb_icon(key)
     if icon is None:
         raise LookupError("No icon")

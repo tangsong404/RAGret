@@ -24,16 +24,20 @@ class ModelCache:
 
     def get_embed_model(self) -> Any:
         if self._embed_model is None:
-            from ragret.embedder import make_embed_model
+            with self._embed_lock:
+                if self._embed_model is None:
+                    from ragret.embedder import make_embed_model
 
-            self._embed_model = make_embed_model(self._device)
+                    self._embed_model = make_embed_model(self._device)
         return self._embed_model
 
     def get_rerank_model(self) -> RagretBCERerank:
         if self._rerank_model is None:
-            from ragret.embedder import make_reranker
+            with self._rerank_lock:
+                if self._rerank_model is None:
+                    from ragret.embedder import make_reranker
 
-            self._rerank_model = make_reranker(self._device, self._rerank_top_n)
+                    self._rerank_model = make_reranker(self._device, self._rerank_top_n)
         return self._rerank_model
 
     def embed_query(self, text: str) -> np.ndarray:

@@ -51,6 +51,19 @@ class TestLogin:
         resp = client.post("/api/auth/login", json={"username": "dave", "password": "secret123"})
         assert resp.status_code == 200
         assert resp.json()["user"]["username"] == "dave"
+        assert client.cookies.get("ragret_session")
+
+    def test_sync_cookie(self, client: TestClient):
+        reg = client.post(
+            "/api/auth/register", json={"username": "syncuser", "password": "secret123"}
+        ).json()
+        client.cookies.clear()
+        resp = client.post(
+            "/api/auth/sync-cookie",
+            headers={"Authorization": f"Bearer {reg['token']}"},
+        )
+        assert resp.status_code == 200
+        assert client.cookies.get("ragret_session")
 
     def test_wrong_password(self, client: TestClient):
         client.post("/api/auth/register", json={"username": "eve", "password": "secret123"})

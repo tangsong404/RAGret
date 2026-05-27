@@ -1,8 +1,10 @@
 from __future__ import annotations
 
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, HTTPException, Request, Response
 
-from server.deps import get_store, optional_actor, require_actor
+from server.config import Settings
+from server.deps import get_settings, get_store, optional_actor, require_actor
+from server.session_cookie import clear_session_cookie, set_session_cookie
 from server.schemas import (
     AuthLoginRequest,
     AuthRegisterRequest,
@@ -16,29 +18,79 @@ from server.store.protocol import AppStore
 router = APIRouter(prefix="/api/auth", tags=["auth"])
 
 
+def _secure_cookie(request: Request) -> bool:
+    return request.url.scheme == "https"
+
+
 @router.post("/register", response_model=AuthResponse)
-def register(body: AuthRegisterRequest, store: AppStore = Depends(get_store)):
+def register(
+    body: AuthRegisterRequest,
+    request: Request,
+    response: Response,
+    store: AppStore = Depends(get_store),
+    settings: Settings = Depends(get_settings),
+):
     try:
         result = auth_service.register_user(store, body.username, body.password)
     except ValueError as e:
         raise HTTPException(400, detail=str(e))
+    set_session_cookie(
+        response,
+        result["token"],
+        max_age=settings.session_ttl,
+        secure=_secure_cookie(request),
+    )
     return AuthResponse(token=result["token"], user=UserOut(**result["user"]))
 
 
 @router.post("/login", response_model=AuthResponse)
-def login(body: AuthLoginRequest, store: AppStore = Depends(get_store)):
+def login(
+    body: AuthLoginRequest,
+    request: Request,
+    response: Response,
+    store: AppStore = Depends(get_store),
+    settings: Settings = Depends(get_settings),
+):
     result = auth_service.login_user(store, body.username, body.password)
     if result is None:
         raise HTTPException(401, detail="Invalid username or password")
+    set_session_cookie(
+        response,
+        result["token"],
+        max_age=settings.session_ttl,
+        secure=_secure_cookie(request),
+    )
     return AuthResponse(token=result["token"], user=UserOut(**result["user"]))
+
+
+@router.post("/sync-cookie")
+def sync_cookie(
+    request: Request,
+    response: Response,
+    actor: dict = Depends(require_actor),
+    settings: Settings = Depends(get_settings),
+):
+    """Set HttpOnly session cookie from the current Bearer token (for direct /api/kb/... links)."""
+    token = str(actor.get("token") or "")
+    if actor.get("kind") != "user" or not token:
+        raise HTTPException(403, detail="Signed-in user session required")
+    set_session_cookie(
+        response,
+        token,
+        max_age=settings.session_ttl,
+        secure=_secure_cookie(request),
+    )
+    return {"ok": True}
 
 
 @router.post("/logout")
 def logout(
+    response: Response,
     actor: dict = Depends(require_actor),
     store: AppStore = Depends(get_store),
 ):
     auth_service.logout_user(store, str(actor.get("token", "")))
+    clear_session_cookie(response)
     return {"ok": True}
 
 

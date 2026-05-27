@@ -3,7 +3,7 @@ from __future__ import annotations
 from pathlib import Path
 
 from fastapi import APIRouter, Depends, File, HTTPException, Query, UploadFile
-from fastapi.responses import Response
+from fastapi.responses import PlainTextResponse, Response
 
 from ragret.registry import IndexRegistry
 from server.config import Settings
@@ -201,6 +201,44 @@ def unsubscribe(
     except LookupError as e:
         raise HTTPException(404, detail=str(e))
     return {"ok": True, "subscribed": False}
+
+
+@router.get("/kb/{name}/parents/{rel_path:path}")
+def get_kb_parent(
+    name: str,
+    rel_path: str,
+    actor: dict = Depends(require_actor),
+    store: AppStore = Depends(get_store),
+    repo_root: Path = Depends(get_repo_root),
+):
+    try:
+        text = kb_service.load_kb_parent_text(name, rel_path, actor, store, repo_root)
+    except ValueError as e:
+        raise HTTPException(400, detail=str(e))
+    except PermissionError as e:
+        raise HTTPException(403, detail=str(e))
+    except LookupError as e:
+        raise HTTPException(404, detail=str(e))
+    return PlainTextResponse(text, media_type="text/plain; charset=utf-8")
+
+
+@router.get("/kb/{name}/assets/{rel_path:path}")
+def get_kb_asset(
+    name: str,
+    rel_path: str,
+    actor: dict = Depends(require_actor),
+    store: AppStore = Depends(get_store),
+    repo_root: Path = Depends(get_repo_root),
+):
+    try:
+        mime, raw = kb_service.load_kb_asset(name, rel_path, actor, store, repo_root)
+    except ValueError as e:
+        raise HTTPException(400, detail=str(e))
+    except PermissionError as e:
+        raise HTTPException(403, detail=str(e))
+    except LookupError as e:
+        raise HTTPException(404, detail=str(e))
+    return Response(content=raw, media_type=mime)
 
 
 @router.get("/kb/{name}/icon")

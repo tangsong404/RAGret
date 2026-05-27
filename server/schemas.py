@@ -39,6 +39,9 @@ class SearchResultOut(BaseModel):
     chunk_index: int
     vector_score: float
     relevance_score: float
+    parent_url: str | None = None
+    line_start: int | None = None
+    line_end: int | None = None
     rrf_score: float | None = None
     dense_rank: int | None = None
     bm25_rank: int | None = None

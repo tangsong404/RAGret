@@ -45,6 +45,7 @@ class RagretBCERerank(BaseDocumentCompressor):
             device=self.device,
             use_fp16=self.use_fp16,
             local_files_only=True,
+            low_cpu_mem_usage=False,
         )
 
     def compress_documents(

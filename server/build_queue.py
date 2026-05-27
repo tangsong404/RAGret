@@ -18,16 +18,40 @@ from pathlib import Path
 from typing import Any, Callable
 from urllib.parse import urlsplit, urlunsplit
 
+from ragret.cache import ModelCache
 from ragret.embedder import BuildCancelledError
 from ragret.indexer import index_workdir, try_incremental_update_workdir
 from ragret.registry import IndexRegistry, safe_sqlite_basename
+from ragret.vision_config import require_vision_settings
 from dulwich import porcelain
 from dulwich.errors import NotGitRepository
 
 from server.archive_util import is_tar_archive_filename, safe_extract_tar_archive
-from server.runtime_paths import runtime_data_dir, runtime_webhook_dir
+from server.config import load_settings
+from server.kb_content_paths import cleanup_kb_content_dirs
+from server.runtime_paths import kb_assets_dir, kb_parents_dir, runtime_data_dir, runtime_webhook_dir
 
 _UPLOAD_ID_RE = re.compile(r"^[a-f0-9]{24}$")
+
+
+def _index_build_kwargs(repo_root: Path, kb_name: str) -> dict[str, Any]:
+    settings = load_settings(repo_root=repo_root)
+    vision_settings = None
+    if bool(settings.image_ingest_enabled):
+        vision_settings = require_vision_settings(
+            provider=settings.vision_provider,
+            base_url=settings.vision_base_url,
+            model=settings.vision_model,
+            api_key=settings.vision_api_key,
+        )
+    return {
+        "kb_name": kb_name,
+        "parents_dir": kb_parents_dir(repo_root, kb_name),
+        "assets_dir": kb_assets_dir(repo_root, kb_name),
+        "image_ingest_enabled": bool(settings.image_ingest_enabled),
+        "public_host": settings.public_host,
+        "vision_settings": vision_settings,
+    }
 
 
 def is_http_git_clone_url(url: str) -> bool:
@@ -495,6 +519,7 @@ def run_one_build_job(
     registry: IndexRegistry,
     app_store: Any,
     upload_base: Path,
+    model_cache: ModelCache | None = None,
 ) -> None:
     job_id = str(job["job_id"])
     kb_name = str(job["kb_name"])
@@ -655,6 +680,8 @@ def run_one_build_job(
                     final_db,
                     progress=rag_progress,
                     cancel_check=cancelled,
+                    model_cache=model_cache,
+                    **_index_build_kwargs(root, kb_name),
                 )
             except BuildCancelledError:
                 raise
@@ -691,6 +718,7 @@ def run_one_build_job(
                 except OSError:
                     pass
                 app_store.delete_knowledge_base(key)
+                cleanup_kb_content_dirs(repo_root=root, kb_name=key)
                 raise RuntimeError(f"Register in app database failed: {e}") from e
             _finalize_and_drop_job(
                 app_store,
@@ -720,11 +748,14 @@ def run_one_build_job(
                 building_path.unlink(missing_ok=True)
                 raise BuildCancelledError("cancelled")
             try:
+                idx_kw = _index_build_kwargs(root, kb_name)
                 inc = try_incremental_update_workdir(
                     extract_dir,
                     building_path,
                     progress=rag_progress,
                     cancel_check=cancelled,
+                    model_cache=model_cache,
+                    **idx_kw,
                 )
                 if not inc:
                     index_workdir(
@@ -732,6 +763,8 @@ def run_one_build_job(
                         building_path,
                         progress=rag_progress,
                         cancel_check=cancelled,
+                        model_cache=model_cache,
+                        **idx_kw,
                     )
             except BuildCancelledError:
                 building_path.unlink(missing_ok=True)
@@ -782,6 +815,7 @@ def run_one_build_job(
         )
         if op == "create":
             app_store.delete_knowledge_base(kb_name)
+            cleanup_kb_content_dirs(repo_root=root, kb_name=kb_name)
             registry.remove(kb_name)
             try:
                 final_db.unlink(missing_ok=True)
@@ -811,6 +845,7 @@ def run_one_build_job(
         )
         if op == "create":
             app_store.delete_knowledge_base(kb_name)
+            cleanup_kb_content_dirs(repo_root=root, kb_name=kb_name)
             registry.remove(kb_name)
             try:
                 final_db.unlink(missing_ok=True)
@@ -833,6 +868,7 @@ def global_build_worker_loop(
     registry: IndexRegistry,
     app_store: Any,
     upload_base: Path,
+    model_cache: ModelCache | None,
     stop_event: threading.Event,
     tick_s: float = 0.35,
 ) -> None:
@@ -855,6 +891,7 @@ def global_build_worker_loop(
                 )
                 if str(job.get("op")) == "create":
                     app_store.delete_knowledge_base(str(job.get("kb_name") or ""))
+                    cleanup_kb_content_dirs(repo_root=root, kb_name=str(job.get("kb_name") or ""))
                     registry.remove(str(job.get("kb_name") or ""))
                     fd = _final_sqlite_path(root, str(job.get("kb_name") or ""))
                     fd.unlink(missing_ok=True)
@@ -866,6 +903,7 @@ def global_build_worker_loop(
                 registry=registry,
                 app_store=app_store,
                 upload_base=upload_base,
+                model_cache=model_cache,
             )
         except Exception:
             sys.stderr.write("ragret-build-queue: unhandled error:\n")
@@ -879,6 +917,7 @@ def start_global_build_worker(
     registry: IndexRegistry,
     app_store: Any,
     upload_base: Path,
+    model_cache: ModelCache | None = None,
 ) -> tuple[threading.Thread, threading.Event]:
     stop = threading.Event()
     t = threading.Thread(
@@ -888,6 +927,7 @@ def start_global_build_worker(
             "registry": registry,
             "app_store": app_store,
             "upload_base": upload_base,
+            "model_cache": model_cache,
             "stop_event": stop,
         },
         name="ragret-build-queue",

@@ -43,6 +43,7 @@ def _make_search_fn(
     index_cache: IndexCache,
     allowed_kbs: list[str],
     actor: dict[str, Any],
+    public_host: str | None = None,
 ) -> Callable[[str, str], str]:
     def search_in_kb(kb_name: str, query: str) -> str:
         kb = str(kb_name or "").strip()
@@ -59,6 +60,8 @@ def _make_search_fn(
             k=8,
             score_threshold=0.3,
             rerank_top_n=5,
+            kb_name=kb,
+            public_host=public_host,
         )
         return search_service.format_search_text(str(query or ""), results)
 
@@ -75,6 +78,7 @@ def run_direct_index_answer(
     uid: int,
     actor: dict[str, Any],
     max_kbs: int = 3,
+    public_host: str | None = None,
 ) -> dict[str, Any]:
     allowed = _allowed_kb_names(store, uid)
     search_in_kb = _make_search_fn(
@@ -84,6 +88,7 @@ def run_direct_index_answer(
         index_cache=index_cache,
         allowed_kbs=allowed,
         actor=actor,
+        public_host=public_host,
     )
     blocks: list[str] = []
     for kb_name in allowed:
@@ -122,6 +127,7 @@ def run_quick_qa_request(
     messages: list[dict[str, str]] | None = None,
     lang: str = "zh",
     on_tool_event: Callable[[str], None] | None = None,
+    public_host: str | None = None,
 ) -> dict[str, Any]:
     allowed = _allowed_kb_names(store, uid)
     search_in_kb = _make_search_fn(
@@ -131,6 +137,7 @@ def run_quick_qa_request(
         index_cache=index_cache,
         allowed_kbs=allowed,
         actor=actor,
+        public_host=public_host,
     )
 
     if not quick_qa_llm_configured():
@@ -142,6 +149,7 @@ def run_quick_qa_request(
             index_cache=index_cache,
             uid=uid,
             actor=actor,
+            public_host=public_host,
         )
 
     result = run_quick_qa(
@@ -173,6 +181,7 @@ def stream_quick_qa_events(
     actor: dict[str, Any],
     messages: list[dict[str, str]] | None = None,
     lang: str = "zh",
+    public_host: str | None = None,
 ) -> Iterator[bytes]:
     out_q: queue.Queue[dict[str, Any] | None] = queue.Queue()
 
@@ -192,6 +201,7 @@ def stream_quick_qa_events(
                 messages=messages,
                 lang=lang,
                 on_tool_event=on_tool_event,
+                public_host=public_host,
             )
             out_q.put({"type": "final", **payload})
         except Exception as e:

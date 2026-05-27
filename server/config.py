@@ -51,6 +51,11 @@ class Settings(BaseSettings):
     llm_base_url: str = ""
     llm_model: str = ""
     llm_api_key: str = ""
+    image_ingest_enabled: bool = False
+    vision_provider: str = "openai"
+    vision_base_url: str = ""
+    vision_model: str = ""
+    vision_api_key: str = ""
 
     @model_validator(mode="before")
     @classmethod
@@ -65,6 +70,13 @@ class Settings(BaseSettings):
     @field_validator("llm_provider", mode="before")
     @classmethod
     def _normalize_llm_provider(cls, value: object) -> str:
+        if str(value or "").strip().lower() == "anthropic":
+            return "anthropic"
+        return "openai"
+
+    @field_validator("vision_provider", mode="before")
+    @classmethod
+    def _normalize_vision_provider(cls, value: object) -> str:
         if str(value or "").strip().lower() == "anthropic":
             return "anthropic"
         return "openai"

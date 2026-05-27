@@ -41,3 +41,17 @@ def default_app_sqlite_path(repo_root: Path) -> Path:
 
 def kb_sqlite_path(repo_root: Path, kb_name: str) -> Path:
     return (runtime_data_dir(repo_root) / f"{safe_sqlite_basename(kb_name)}.sqlite").resolve()
+
+
+def kb_parents_dir(repo_root: Path, kb_name: str, *, create: bool = True) -> Path:
+    p = (runtime_data_dir(repo_root, create=create) / "kb_parents" / safe_sqlite_basename(kb_name)).resolve()
+    if create:
+        p.mkdir(parents=True, exist_ok=True)
+    return p
+
+
+def kb_assets_dir(repo_root: Path, kb_name: str, *, create: bool = True) -> Path:
+    p = (runtime_data_dir(repo_root, create=create) / "kb_assets" / safe_sqlite_basename(kb_name)).resolve()
+    if create:
+        p.mkdir(parents=True, exist_ok=True)
+    return p

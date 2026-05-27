@@ -12,10 +12,12 @@ from server.deps import (
     get_index_cache,
     get_model_cache,
     get_registry,
+    get_settings,
     get_store,
     require_actor,
     require_user_id,
 )
+from server.config import Settings
 from server.services import quick_qa_service
 from server.store.protocol import AppStore
 
@@ -43,6 +45,7 @@ async def quick_qa(
     registry: IndexRegistry = Depends(get_registry),
     model_cache: ModelCache = Depends(get_model_cache),
     index_cache: IndexCache = Depends(get_index_cache),
+    settings: Settings = Depends(get_settings),
 ):
     q = body.question.strip()
     if not q:
@@ -67,6 +70,7 @@ async def quick_qa(
                 actor=actor,
                 messages=messages,
                 lang=body.lang,
+                public_host=settings.public_host,
             ),
             media_type="application/x-ndjson; charset=utf-8",
             headers={"Cache-Control": "no-cache"},
@@ -83,6 +87,7 @@ async def quick_qa(
             actor=actor,
             messages=messages,
             lang=body.lang,
+            public_host=settings.public_host,
         )
     except Exception as e:
         raise HTTPException(500, detail=str(e)) from e

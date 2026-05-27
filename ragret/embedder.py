@@ -4,6 +4,7 @@ from __future__ import annotations
 import ragret.compat  # noqa: F401 — multiprocess patch before torch / langchain
 
 import os
+import threading
 from pathlib import Path
 from typing import Any, Callable
 
@@ -152,11 +153,24 @@ def _local_snapshot_path_or_fail(repo_id: str, label: str) -> str:
     )
 
 
+_embed_model_lock = threading.Lock()
+
+
 def make_embed_model(device: str) -> HuggingFaceEmbeddings:
+    """Load BCE embedding model (serialized — concurrent loads break on meta tensors)."""
+    with _embed_model_lock:
+        return _make_embed_model_unlocked(device)
+
+
+def _make_embed_model_unlocked(device: str) -> HuggingFaceEmbeddings:
     local = _local_snapshot_path_or_fail(EMBEDDING_MODEL, "BCE embedding")
     return HuggingFaceEmbeddings(
         model_name=local,
-        model_kwargs={"device": device, "local_files_only": True},
+        model_kwargs={
+            "device": device,
+            "local_files_only": True,
+            "model_kwargs": {"low_cpu_mem_usage": False},
+        },
         encode_kwargs={"batch_size": EMBED_BATCH_SIZE, "normalize_embeddings": True},
         cache_folder=os.environ["SENTENCE_TRANSFORMERS_HOME"],
     )

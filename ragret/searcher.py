@@ -18,6 +18,7 @@ from ragret.fts_index import (
     dense_chunk_ids_for_rrf,
     reciprocal_rank_fusion,
 )
+from ragret.citation_urls import build_parent_url
 from ragret.indexer import get_meta
 
 EMBEDDING_MODEL = "maidalun1020/bce-embedding-base_v1"
@@ -72,6 +73,8 @@ def search_db(
     k: int = 10,
     score_threshold: float = 0.3,
     rerank_top_n: int = 5,
+    kb_name: str | None = None,
+    public_host: str | None = None,
 ) -> list[dict]:
     db_path = db_path.resolve()
 
@@ -144,9 +147,10 @@ def search_db(
 
     results = []
     for d in ranked:
+        source = str(d.metadata.get("source", ""))
         row: dict = {
             "content": d.page_content,
-            "source": str(d.metadata.get("source", "")),
+            "source": source,
             "chunk_index": int(d.metadata.get("chunk_index", 0)),
             "vector_score": float(d.metadata.get("vector_score", 0.0)),
             "relevance_score": float(d.metadata.get("relevance_score", 0.0)),
@@ -157,5 +161,17 @@ def search_db(
             row["dense_rank"] = int(d.metadata["dense_rank"])
         if "bm25_rank" in d.metadata:
             row["bm25_rank"] = int(d.metadata["bm25_rank"])
+        line_start = d.metadata.get("line_start")
+        line_end = d.metadata.get("line_end")
+        if line_start is not None:
+            row["line_start"] = int(line_start)
+        if line_end is not None:
+            row["line_end"] = int(line_end)
+        if kb_name and source:
+            row["parent_url"] = build_parent_url(
+                kb_name=kb_name,
+                source_key=source,
+                public_host=public_host,
+            )
         results.append(row)
     return results

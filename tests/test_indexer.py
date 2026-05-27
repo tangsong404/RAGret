@@ -46,6 +46,33 @@ def test_build_index_sets_meta(conn: sqlite3.Connection, tmp_path: Path) -> None
     assert get_meta(conn, "embed_dim") == "4"
 
 
+def test_build_index_writes_parent_and_line_metadata(
+    conn: sqlite3.Connection, tmp_path: Path
+) -> None:
+    import json
+
+    parents = tmp_path / "parents"
+    (tmp_path / "doc.md").write_text("alpha\nbeta\n" * 400)
+    build_index(conn, tmp_path, MockEmbedModel(), parents_dir=parents)
+    assert (parents / "doc.md.txt").is_file()
+    row = conn.execute("SELECT metadata_json FROM chunks LIMIT 1").fetchone()
+    meta = json.loads(row[0])
+    assert "line_start" in meta
+    assert "line_end" in meta
+
+
+def test_build_index_stores_corpus_fingerprints(conn: sqlite3.Connection, tmp_path: Path) -> None:
+    import json
+
+    (tmp_path / "notes.txt").write_text("some content")
+    (tmp_path / "diagram.png").write_bytes(b"png")
+    build_index(conn, tmp_path, MockEmbedModel())
+    raw = get_meta(conn, "corpus_fingerprints")
+    assert raw is not None
+    fp = json.loads(raw)
+    assert set(fp.keys()) == {"notes.txt", "diagram.png"}
+
+
 def test_try_incremental_no_file_changes(tmp_path: Path) -> None:
     work = tmp_path / "corpus"
     work.mkdir()
