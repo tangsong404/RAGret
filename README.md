@@ -34,8 +34,6 @@ Indexing and retrieval use **BCE embedding + SQLite + BM25 + RRF fusion + BCE re
 - SQLite **FTS5 BM25** for lexical recall (keyword / sparse signal)
 - **RRF (Reciprocal Rank Fusion)** to merge dense and BM25 candidate lists before reranking
 
-Indexes built before this feature lack the `chunks_fts` table and still work with dense vectors only; **run a full or incremental rebuild** to enable BM25 fusion.
-
 ## Quick start
 
 Pick **one** GPU path: **CUDA** or **Intel XPU**. Pick **one** runtime: **local Python** or **Docker**.
@@ -241,8 +239,6 @@ Search JSON now includes `parent_url`, `line_start`, and `line_end` per hit. For
 1. Call `/api/search/{kb}` to get hit chunks plus citation offsets.
 2. `web_fetch` the `parent_url` (requires `Authorization: Bearer` or `X-API-Key`).
 3. Read or grep around `line_start..line_end` for nearby context.
-
-After signing in via the web panel, the browser receives an HttpOnly `ragret_session` cookie so you can open `parent_url` / `assets` links in the **same site** directly; external tools still need Bearer or an API key.
 
 **Agents:** download `SKILL.md` from the UI (**SKILL.md** in the sidebar) and import it into Claude Code, Cursor, OpenClaw, or other agent tools.
 

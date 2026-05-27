@@ -34,8 +34,6 @@
 - SQLite **FTS5 BM25** 用于词法检索（关键词精确匹配 / 稀疏信号）
 - **RRF（Reciprocal Rank Fusion）** 在重排序前融合稠密检索与 BM25 的候选列表
 
-旧版索引（无 `chunks_fts` 表）仍可按稠密向量检索；**重新全量或增量构建** 后即可启用 BM25 融合。
-
 ## 快速开始
 
 **GPU 二选一：** **CUDA** 或 **Intel XPU**。**运行方式二选一：** **本机 Python** 或 **Docker**。
@@ -241,10 +239,6 @@ curl -sS -X POST "$BASE/api/quick-qa" -H "Content-Type: application/json" \
 1. 调用 `/api/search/{kb}` 获取命中 chunk 与引用坐标。
 2. 对 `parent_url` 执行 `web_fetch`（需 `Authorization: Bearer` 或 `X-API-Key`）。
 3. 以 `line_start..line_end` 为中心读取或 grep 附近上下文。
-
-在 Web 面板登录后，浏览器会同步 HttpOnly Cookie `ragret_session`，因此可在**同一站点**直接打开 `parent_url` / 资源 `assets` 链接；外部工具仍须携带 Bearer 或 API Key。
-
-启用 `RAGRET_IMAGE_INGEST_ENABLED` 时，内嵌图（含 Word 的 EMF/WMF）会**强制转为 PNG**。转换顺序：Pillow → ImageMagick (`magick`) → Inkscape → LibreOffice（`soffice`）。Linux/容器请至少安装其中一种；Windows 上 Pillow 也可直接读部分 EMF/WMF。
 
 **智能体：** 在侧栏打开 **SKILL.md** 下载文档，导入 Claude Code、Cursor、OpenClaw 或其他 Agent 工具。
 
