@@ -796,6 +796,21 @@ class SqliteAppStore:
                 raise ValueError("Knowledge base name already exists") from e
         return True
 
+    def update_knowledge_base_db_path(self, name: str, db_path: str) -> bool:
+        key = str(name).strip()
+        path = str(db_path).strip()
+        if not key or not path:
+            return False
+        with self._pool.acquire() as conn:
+            kb = self._kb_row_by_name(conn, key)
+            if kb is None:
+                return False
+            conn.execute(
+                "UPDATE knowledge_bases SET db_path = ? WHERE id = ?",
+                (path, int(kb["id"])),
+            )
+        return True
+
     def list_knowledge_bases_for_user(self, user_id: int) -> list[KBRecord]:
         out: list[KBRecord] = []
         with self._pool.acquire() as conn:

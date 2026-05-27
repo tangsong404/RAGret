@@ -1,0 +1,58 @@
+{
+  "skill_name": "ragret",
+  "evals": [
+    {
+      "id": 1,
+      "prompt": "Can you search our internal RAGret knowledge base for information about the refund policy? I think we have an index called 'product_docs'.",
+      "expected_output": "Claude uses the RAGret skill to search the 'product_docs' index, runs the two-hop citation pipeline to download parent documents and extract line-level context, then answers with source citations including filename and line numbers.",
+      "files": [],
+      "expectations": [
+        "The skill prompts for RAGRET_API_KEY and BASE_URL if not set, without asking for raw secrets in chat",
+        "The skill constructs the correct curl command to search the 'product_docs' index",
+        "The skill uses X-API-Key header with the API key from environment",
+        "The skill does not hardcode or expose the API key in plain text in commands shown to the user",
+        "The skill mentions parent_url, line_start, line_end as part of the search response",
+        "The skill runs the two-hop citation pipeline (download parent doc, read by line range)",
+        "The answer includes source citation with filename and line numbers"
+      ]
+    },
+    {
+      "id": 2,
+      "prompt": "I need to find something in our internal docs about the deployment process. Not sure what's available — can you check what indexes I have access to?",
+      "expected_output": "Claude first lists available indexes via the RAGret API, then asks which one to search, then performs the search with the two-hop citation pipeline.",
+      "files": [],
+      "expectations": [
+        "The skill first lists indexes using the /api/subscribe-indexes endpoint",
+        "The skill presents the available indexes to the user before searching",
+        "The skill asks the user to choose an index or specify what they're looking for",
+        "The skill constructs the correct API URLs using BASE_URL environment variable",
+        "After searching, the skill downloads parent documents and extracts line-range context"
+      ]
+    },
+    {
+      "id": 3,
+      "prompt": "Search RAGret for 'microservices best practices' in the 'engineering' index and give me a summary with source citations.",
+      "expected_output": "Claude formulates the search query and retrieves results from the RAGret 'engineering' index, runs the two-hop pipeline to get full context from parent documents around matching lines, then summarizes the findings with source citations (filename + line numbers).",
+      "files": [],
+      "expectations": [
+        "The skill uses the correct search endpoint /api/search/engineering",
+        "The skill passes the query as a URL-encoded parameter",
+        "The skill handles JSON response and extracts parent_url, line_start, line_end",
+        "The skill downloads parent documents to temp directory and reads relevant line ranges",
+        "The skill cites sources with filename and line numbers in the response"
+      ]
+    },
+    {
+      "id": 4,
+      "prompt": "I just got search results from RAGret and one of them has parent_url='/api/kb/engineering/parents/docs/architecture-guide.pdf.txt' with line_start=45 and line_end=67. Can you fetch the context around those lines so I can see the full picture?",
+      "expected_output": "Claude uses the parent command or direct curl to download the parent document and extracts lines 45-67, showing the expanded context to the user.",
+      "files": [],
+      "expectations": [
+        "The skill constructs the full parent URL by combining BASE_URL with the parent_url path",
+        "The skill downloads the parent document to a local temp directory",
+        "The skill reads the specific line range (45-67) from the downloaded file",
+        "The skill handles the case where line_start/line_end might be null"
+      ]
+    }
+  ]
+}

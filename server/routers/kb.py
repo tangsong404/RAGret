@@ -96,9 +96,10 @@ def patch_kb(
     actor: dict = Depends(require_actor),
     store: AppStore = Depends(get_store),
     registry: IndexRegistry = Depends(get_registry),
+    repo_root: Path = Depends(get_repo_root),
 ):
     try:
-        active = kb_service.patch_kb(name, body, actor, store, registry)
+        active = kb_service.patch_kb(name, body, actor, store, registry, repo_root)
     except ValueError as e:
         raise HTTPException(400, detail=str(e))
     except PermissionError as e:

@@ -8,7 +8,7 @@ from typing import Any
 from ragret.registry import IndexRegistry, safe_index_name
 from server.media_util import resolve_image_mime
 from server.config import Settings
-from server.kb_content_paths import resolve_under_base
+from server.kb_content_paths import relocate_kb_runtime_on_rename, resolve_under_base
 from server.runtime_paths import kb_assets_dir, kb_parents_dir, kb_sqlite_path
 from server.serializers import serialize_kb
 from server.store.protocol import AppStore, KBRecord
@@ -173,12 +173,51 @@ def remove_member(
         raise LookupError("Member not found or not owner")
 
 
+def _resolve_index_sqlite_path(repo_root: Path, kb_name: str, store: AppStore) -> Path | None:
+    stored = store.resolve_kb_db_path(kb_name)
+    if stored:
+        p = Path(stored).resolve()
+        if p.is_file():
+            return p
+    default = kb_sqlite_path(repo_root, kb_name)
+    if default.is_file():
+        return default.resolve()
+    return None
+
+
+def _sync_kb_storage_after_rename(
+    *,
+    old_key: str,
+    new_key: str,
+    store: AppStore,
+    registry: IndexRegistry,
+    repo_root: Path,
+    old_index: Path | None,
+    old_reg_path: Path | None,
+    old_desc: str,
+) -> None:
+    relocate_kb_runtime_on_rename(repo_root, old_key, new_key)
+    new_index = kb_sqlite_path(repo_root, new_key)
+    if old_index is not None and old_index.is_file() and not new_index.is_file():
+        new_index.parent.mkdir(parents=True, exist_ok=True)
+        if new_index.exists():
+            raise ValueError("Cannot rename knowledge base: index database already exists")
+        old_index.rename(new_index)
+    if new_index.is_file():
+        store.update_knowledge_base_db_path(new_key, str(new_index.resolve()))
+    reg_path = new_index if new_index.is_file() else old_reg_path
+    if reg_path is not None:
+        registry.remove(old_key)
+        registry.add(new_key, reg_path, description=old_desc)
+
+
 def patch_kb(
     name: str,
     data: dict[str, Any],
     actor: dict[str, Any],
     store: AppStore,
     registry: IndexRegistry,
+    repo_root: Path,
 ) -> str:
     key = safe_index_name(name)
     kind = actor.get("kind")
@@ -187,13 +226,13 @@ def patch_kb(
         raise ValueError("No updates provided")
 
     if kind == "superuser":
-        return _patch_kb_superuser(key, data, store, registry)
+        return _patch_kb_superuser(key, data, store, registry, repo_root)
     if uid is None:
         raise PermissionError("Login required")
     perm = store.permission_for(int(uid), key)
     if perm is None or not perm.can_read:
         raise PermissionError("Forbidden")
-    return _patch_kb_owner(key, data, int(uid), perm, store, registry)
+    return _patch_kb_owner(key, data, int(uid), perm, store, registry, repo_root)
 
 
 def _patch_kb_superuser(
@@ -201,19 +240,28 @@ def _patch_kb_superuser(
     data: dict[str, Any],
     store: AppStore,
     registry: IndexRegistry,
+    repo_root: Path,
 ) -> str:
     active_key = key
     did = False
     if "name" in data:
         new_name = safe_index_name(str(data.get("name") or ""))
         if new_name != key:
+            old_reg_path = registry.get_path(key)
+            old_desc = registry.get_description(key) or ""
+            old_index = _resolve_index_sqlite_path(repo_root, key, store)
             if not store.rename_knowledge_base(key, new_name):
                 raise LookupError("Unknown knowledge base")
-            old_path = registry.get_path(key)
-            old_desc = registry.get_description(key) or ""
-            if old_path is not None:
-                registry.remove(key)
-                registry.add(new_name, old_path, description=old_desc)
+            _sync_kb_storage_after_rename(
+                old_key=key,
+                new_key=new_name,
+                store=store,
+                registry=registry,
+                repo_root=repo_root,
+                old_index=old_index,
+                old_reg_path=old_reg_path,
+                old_desc=old_desc,
+            )
             active_key = new_name
             did = True
     if "description" in data:
@@ -263,6 +311,7 @@ def _patch_kb_owner(
     perm: Any,
     store: AppStore,
     registry: IndexRegistry,
+    repo_root: Path,
 ) -> str:
     if "is_public" in data and not perm.is_owner:
         raise PermissionError("Only the owner can change visibility")
@@ -279,13 +328,21 @@ def _patch_kb_owner(
     if "name" in data:
         new_name = safe_index_name(str(data.get("name") or ""))
         if new_name != key:
+            old_reg_path = registry.get_path(key)
+            old_desc = registry.get_description(key) or ""
+            old_index = _resolve_index_sqlite_path(repo_root, key, store)
             if not store.rename_knowledge_base(key, new_name):
                 raise LookupError("Unknown knowledge base")
-            old_path = registry.get_path(key)
-            old_desc = registry.get_description(key) or ""
-            if old_path is not None:
-                registry.remove(key)
-                registry.add(new_name, old_path, description=old_desc)
+            _sync_kb_storage_after_rename(
+                old_key=key,
+                new_key=new_name,
+                store=store,
+                registry=registry,
+                repo_root=repo_root,
+                old_index=old_index,
+                old_reg_path=old_reg_path,
+                old_desc=old_desc,
+            )
             active_key = new_name
     if "description" in data:
         desc = str(data.get("description") or "").strip()

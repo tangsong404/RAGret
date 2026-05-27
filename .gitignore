@@ -21,3 +21,5 @@ ragret/static/
 
 openspec/
 docs/
+.agents/
+skills-lock.json
